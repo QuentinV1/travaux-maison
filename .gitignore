@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.local
+.testeurs
+.DS_Store
+Thumbs.db
