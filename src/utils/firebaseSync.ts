@@ -3,6 +3,9 @@ import {
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
   type Auth,
@@ -87,6 +90,23 @@ export async function signInWithGoogle(): Promise<User> {
   provider.setCustomParameters({ prompt: 'select_account' });
   const cred = await signInWithPopup(auth, provider);
   return cred.user;
+}
+
+export async function signInWithEmail(email: string, password: string): Promise<User> {
+  const { auth } = ensureFirebase();
+  const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+  return cred.user;
+}
+
+export async function resetFirebasePassword(email: string): Promise<void> {
+  const { auth } = ensureFirebase();
+  await sendPasswordResetEmail(auth, email.trim());
+}
+
+export async function resendVerificationEmail(): Promise<void> {
+  const { auth } = ensureFirebase();
+  if (!auth.currentUser) throw new Error('Aucun utilisateur connecté.');
+  await sendEmailVerification(auth.currentUser);
 }
 
 export async function signOutFirebase(): Promise<void> {

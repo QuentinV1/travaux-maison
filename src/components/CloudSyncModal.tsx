@@ -19,6 +19,9 @@ import { copyTextToClipboard } from '../utils/clipboard';
 import {
   ensureRemoteWorkspace,
   listMyRemoteWorkspaces,
+  resendVerificationEmail,
+  resetFirebasePassword,
+  signInWithEmail,
   signInWithGoogle,
   signOutFirebase,
   updateWorkspaceMembers,
@@ -54,6 +57,8 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   const [copiedUid, setCopiedUid] = useState(false);
   const [workspaces, setWorkspaces] = useState<RemoteWorkspaceSummary[]>([]);
   const [newMemberUid, setNewMemberUid] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   useEffect(() => {
     if (!isOpen || !user) {
@@ -89,6 +94,54 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
       await signInWithGoogle();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connexion Google impossible.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await signInWithEmail(email, password);
+      setPassword('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Connexion par e-mail impossible.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!email.trim()) {
+      setError('Saisissez votre adresse e-mail pour recevoir le lien de réinitialisation.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await resetFirebasePassword(email);
+      setInfo('E-mail de réinitialisation envoyé (vérifiez vos spams).');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossible d’envoyer l’e-mail de réinitialisation.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await resendVerificationEmail();
+      setInfo('E-mail de vérification envoyé. Rechargez la page après validation.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossible d’envoyer l’e-mail de vérification.');
     } finally {
       setBusy(false);
     }
@@ -233,23 +286,98 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
         )}
 
         {!user ? (
-          <div className="border border-slate-200 rounded-2xl p-5 text-center space-y-3">
-            <p className="text-sm text-slate-600">
-              Connectez-vous avec votre compte Google autorisé sur <strong>quentin-apps-hub</strong>{' '}
-              pour activer la synchronisation temps réel.
+          <div className="border border-slate-200 rounded-2xl p-5 space-y-4">
+            <p className="text-sm text-slate-600 text-center">
+              Connectez-vous avec votre compte autorisé sur <strong>quentin-apps-hub</strong> pour
+              activer la synchronisation temps réel.
             </p>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleSignIn}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
-            >
-              <LogIn className="w-4 h-4" />
-              Se connecter avec Google
-            </button>
+            <div className="text-center">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleSignIn}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
+              >
+                <LogIn className="w-4 h-4" />
+                Se connecter avec Google
+              </button>
+            </div>
+
+            <div className="relative flex items-center py-1">
+              <div className="grow border-t border-slate-200" />
+              <span className="shrink mx-3 text-xs text-slate-400">ou par e-mail</span>
+              <div className="grow border-t border-slate-200" />
+            </div>
+
+            <form onSubmit={handleEmailSignIn} className="space-y-3">
+              <div>
+                <label htmlFor="cloud-sync-email" className="block text-xs font-medium text-slate-700 mb-1">
+                  Adresse e-mail
+                </label>
+                <input
+                  id="cloud-sync-email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nom@exemple.fr"
+                  autoComplete="email"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="cloud-sync-password" className="block text-xs font-medium text-slate-700 mb-1">
+                  Mot de passe
+                </label>
+                <input
+                  id="cloud-sync-password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleResetPassword}
+                  className="text-xs text-sky-600 hover:text-sky-800 disabled:opacity-50"
+                >
+                  Mot de passe oublié ?
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || !email.trim() || !password}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 disabled:opacity-50"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Se connecter
+                </button>
+              </div>
+            </form>
           </div>
         ) : (
           <div className="space-y-4">
+            {!user.emailVerified && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 space-y-2">
+                <p>
+                  <strong>E-mail non vérifié :</strong> les règles Firestore de{' '}
+                  <code>quentin-apps-hub</code> exigent une adresse vérifiée (<code>email_verified</code>).
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleResendVerification}
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-50"
+                >
+                  Renvoyer l’e-mail de vérification
+                </button>
+              </div>
+            )}
             {/* Connected User */}
             <div className="border border-slate-200 rounded-xl p-3.5 flex items-center justify-between gap-3">
               <div className="min-w-0">
