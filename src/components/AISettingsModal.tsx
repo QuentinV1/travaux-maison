@@ -102,6 +102,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
             <div className="flex gap-2">
               <input
                 type="password"
+                maxLength={200}
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
                 placeholder="AIzaSy..."
@@ -141,6 +142,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
             </label>
             <input
               type="url"
+              maxLength={250}
               value={comfyUiUrl}
               onChange={(e) => setComfyUiUrl(e.target.value)}
               placeholder="http://127.0.0.1:8188"

@@ -33,6 +33,7 @@ import {
   X,
   Settings2,
   ArrowLeft,
+  Compass,
   ArrowRight,
 } from 'lucide-react';
 import { NumericInput } from './NumericInput';
@@ -183,6 +184,7 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
   // Furniture drawer
   const [showFurnitureDrawer, setShowFurnitureDrawer] = useState(false);
+  const [showCompassPanel, setShowCompassPanel] = useState(false);
   const [furnitureCategory, setFurnitureCategory] = useState<string>('Salon');
 
   // New floor modal
@@ -2890,6 +2892,84 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
             selection ? 'left-4 items-start md:left-auto md:right-[21.5rem] md:items-end' : 'right-4 items-end'
           }`}
         >
+          {/* Orientation Sud (Boussole 2D -> Soleil 3D) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowCompassPanel((v) => !v)}
+              title={`Orientation Sud : ${floor.southAngleDeg ?? 0}° (cliquer pour orienter le soleil 3D)`}
+              className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl shadow-md px-2.5 py-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:border-amber-300"
+            >
+              <span
+                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700 font-bold text-[10px] transition-transform"
+                style={{ transform: `rotate(${floor.southAngleDeg ?? 0}deg)` }}
+              >
+                <Compass className="w-4 h-4" />
+              </span>
+              <span>Sud {floor.southAngleDeg ?? 0}°</span>
+            </button>
+
+            {showCompassPanel && (
+              <div className="absolute bottom-full mb-2 right-0 w-56 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-xl p-3 space-y-2.5 z-30">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Compass className="w-4 h-4 text-amber-500" />
+                    Orientation du Sud
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCompassPanel(false)}
+                    aria-label="Fermer"
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex justify-center py-1">
+                  <div className="relative w-16 h-16 rounded-full border-2 border-slate-200 bg-slate-50 flex items-center justify-center">
+                    <div
+                      className="w-full h-full flex flex-col items-center justify-between py-1 transition-transform"
+                      style={{ transform: `rotate(${floor.southAngleDeg ?? 0}deg)` }}
+                    >
+                      <span className="text-[10px] font-bold text-slate-400">N</span>
+                      <span className="text-xs font-extrabold text-amber-600">S ↓</span>
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={355}
+                  step={5}
+                  value={floor.southAngleDeg ?? 0}
+                  onChange={(e) => commitFloor({ ...floor, southAngleDeg: Number(e.target.value) })}
+                  className="w-full accent-amber-500 h-1.5"
+                />
+                <div className="grid grid-cols-4 gap-1 text-[10px] font-semibold">
+                  {[
+                    ['Bas', 0],
+                    ['Gauche', 90],
+                    ['Haut', 180],
+                    ['Droite', 270],
+                  ].map(([lbl, deg]) => (
+                    <button
+                      key={String(lbl)}
+                      type="button"
+                      onClick={() => commitFloor({ ...floor, southAngleDeg: Number(deg) })}
+                      className={`py-1 rounded-lg border ${
+                        (floor.southAngleDeg ?? 0) === deg
+                          ? 'bg-amber-500 text-white border-amber-500'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl shadow-md p-1 flex flex-col gap-1">
             <button
               onClick={() => setZoom((z) => Math.min(3.0, z * 1.2))}

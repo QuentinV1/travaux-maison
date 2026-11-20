@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { FloorMaterial, FurnitureMaterialType, WallMaterial } from '../types';
+import type { FloorMaterial, FurnitureMaterialType, SurfacePattern, WallMaterial } from '../types';
 
 export interface MaterialTextureResult {
   map?: THREE.Texture;
@@ -316,6 +316,143 @@ export function getProceduralWallTextures(
     roughness,
     metalness,
     bumpScale,
+  };
+}
+
+export function getProceduralPatternTextures(
+  pattern: SurfacePattern,
+  realisticMode: boolean,
+  surfaceWidthM = 1,
+  surfaceHeightM = 1
+): MaterialTextureResult {
+  const c1 = hexToRgb(pattern.primaryColor || '#f8fafc');
+  const c2 = hexToRgb(pattern.secondaryColor || '#334155');
+  const key = `pattern_${pattern.type}_${pattern.primaryColor.toLowerCase()}_${pattern.secondaryColor.toLowerCase()}`;
+  let pair = proceduralCache.get(key);
+
+  if (!pair) {
+    const size = 256;
+    const { cColor, ctxC, cBump, ctxB } = createCanvasPair(size);
+    ctxC.fillStyle = rgbCss(c1.r, c1.g, c1.b);
+    ctxC.fillRect(0, 0, size, size);
+    ctxB.fillStyle = 'rgb(128,128,128)';
+    ctxB.fillRect(0, 0, size, size);
+
+    if (pattern.type === 'checkerboard') {
+      const half = size / 2;
+      ctxC.fillStyle = rgbCss(c2.r, c2.g, c2.b);
+      ctxC.fillRect(0, 0, half, half);
+      ctxC.fillRect(half, half, half, half);
+      ctxB.fillStyle = 'rgb(142,142,142)';
+      ctxB.fillRect(0, 0, half, half);
+      ctxB.fillRect(half, half, half, half);
+      ctxB.strokeStyle = 'rgb(95,95,95)';
+      ctxB.lineWidth = 2;
+      ctxB.strokeRect(0, 0, half, half);
+      ctxB.strokeRect(half, half, half, half);
+    } else if (pattern.type === 'stripes-vertical') {
+      ctxC.fillStyle = rgbCss(c2.r, c2.g, c2.b);
+      ctxB.fillStyle = 'rgb(140,140,140)';
+      for (let i = 0; i < 4; i++) {
+        ctxC.fillRect(i * 64, 0, 32, size);
+        ctxB.fillRect(i * 64, 0, 32, size);
+      }
+    } else if (pattern.type === 'stripes-horizontal') {
+      ctxC.fillStyle = rgbCss(c2.r, c2.g, c2.b);
+      ctxB.fillStyle = 'rgb(140,140,140)';
+      for (let i = 0; i < 4; i++) {
+        ctxC.fillRect(0, i * 64, size, 32);
+        ctxB.fillRect(0, i * 64, size, 32);
+      }
+    } else if (pattern.type === 'herringbone-wallpaper') {
+      ctxC.strokeStyle = rgbCss(c2.r, c2.g, c2.b, 0.85);
+      ctxC.lineWidth = 6;
+      ctxB.strokeStyle = 'rgb(165,165,165)';
+      ctxB.lineWidth = 6;
+      const step = 32;
+      for (let y = -step; y <= size + step; y += step) {
+        ctxC.beginPath();
+        ctxB.beginPath();
+        for (let x = 0; x <= size; x += 64) {
+          ctxC.moveTo(x, y);
+          ctxC.lineTo(x + 32, y + 24);
+          ctxC.lineTo(x + 64, y);
+          ctxB.moveTo(x, y);
+          ctxB.lineTo(x + 32, y + 24);
+          ctxB.lineTo(x + 64, y);
+        }
+        ctxC.stroke();
+        ctxB.stroke();
+      }
+    } else if (pattern.type === 'terrazzo-dots') {
+      let s = 4219;
+      const rand = () => {
+        s = (s * 9301 + 49297) % 233280;
+        return s / 233280;
+      };
+      for (let i = 0; i < 42; i++) {
+        const x = rand() * size;
+        const y = rand() * size;
+        const r = 4 + rand() * 9;
+        ctxC.fillStyle = rgbCss(c2.r, c2.g, c2.b, 0.75 + rand() * 0.25);
+        ctxC.beginPath();
+        ctxC.arc(x, y, r, 0, Math.PI * 2);
+        ctxC.fill();
+        ctxB.fillStyle = 'rgb(148,148,148)';
+        ctxB.beginPath();
+        ctxB.arc(x, y, r, 0, Math.PI * 2);
+        ctxB.fill();
+      }
+    } else if (pattern.type === 'geometric-diamond') {
+      ctxC.strokeStyle = rgbCss(c2.r, c2.g, c2.b, 0.9);
+      ctxC.lineWidth = 4;
+      ctxB.strokeStyle = 'rgb(160,160,160)';
+      ctxB.lineWidth = 4;
+      const cell = 64;
+      for (let y = 0; y < size; y += cell) {
+        for (let x = 0; x < size; x += cell) {
+          const cx = x + cell / 2;
+          const cy = y + cell / 2;
+          ctxC.beginPath();
+          ctxC.moveTo(cx, y);
+          ctxC.lineTo(x + cell, cy);
+          ctxC.lineTo(cx, y + cell);
+          ctxC.lineTo(x, cy);
+          ctxC.closePath();
+          ctxC.stroke();
+
+          ctxB.beginPath();
+          ctxB.moveTo(cx, y);
+          ctxB.lineTo(x + cell, cy);
+          ctxB.lineTo(cx, y + cell);
+          ctxB.lineTo(x, cy);
+          ctxB.closePath();
+          ctxB.stroke();
+        }
+      }
+    }
+
+    if (realisticMode) {
+      addSubtleGrain(ctxC, ctxB, size, 0.03, 73);
+    }
+
+    pair = {
+      map: finalizeTexture(cColor, true),
+      bumpMap: finalizeTexture(cBump, false),
+    };
+    proceduralCache.set(key, pair);
+  }
+
+  const tileM = Math.max(0.15, (pattern.scaleCm ?? 40) / 100);
+  const repX = surfaceWidthM / tileM;
+  const repY = surfaceHeightM / tileM;
+
+  return {
+    map: cloneWithRepeat(pair.map, repX, repY),
+    bumpMap: cloneWithRepeat(pair.bumpMap, repX, repY),
+    roughness: 0.72,
+    metalness: 0.02,
+    bumpScale: realisticMode ? 0.014 : 0.005,
   };
 }
 

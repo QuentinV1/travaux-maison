@@ -343,6 +343,7 @@ export const WebCatalogModal: React.FC<WebCatalogModalProps> = ({
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
+                maxLength={120}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Ex: TV OLED 65, canapé bouclette beige, monstera, meuble vasque..."
@@ -380,6 +381,7 @@ export const WebCatalogModal: React.FC<WebCatalogModalProps> = ({
             <div className="flex gap-2">
               <input
                 type="text"
+                maxLength={500}
                 value={urlOrPaste}
                 onChange={(e) => setUrlOrPaste(e.target.value)}
                 placeholder="https://www.darty.com/... ou 'Canapé Poltronesofà 225x98cm 1490€'"
@@ -446,6 +448,7 @@ export const WebCatalogModal: React.FC<WebCatalogModalProps> = ({
                   <label className="text-[11px] font-semibold text-slate-600">Nom de l’article</label>
                   <input
                     type="text"
+                    maxLength={120}
                     value={draft.label}
                     onChange={(e) => setDraft({ ...draft, label: e.target.value })}
                     placeholder="Ex: TV LG OLED 65C4 ou Canapé Poltronesofà"
@@ -517,6 +520,7 @@ export const WebCatalogModal: React.FC<WebCatalogModalProps> = ({
                   <label className="text-[11px] font-semibold text-slate-600">Enseigne</label>
                   <input
                     type="text"
+                    maxLength={60}
                     value={draft.store}
                     onChange={(e) => setDraft({ ...draft, store: e.target.value })}
                     className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs mt-0.5"

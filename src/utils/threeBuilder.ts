@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import type { Floor, FloorMaterial, FurnitureItem, Opening, RoomZone, Wall } from '../types';
+import type { Floor, FloorMaterial, FurnitureItem, Opening, RoomZone, SurfacePattern, Wall } from '../types';
 import { FLOOR_MATERIAL_LABELS, OPENING_TYPE_LABELS } from '../data/furnitureCatalog';
 import { pointInPolygon, polygonAreaM2, polygonBounds, polygonCentroid, wallLengthCm } from './geometry';
 import {
   createCroppedFabricTextureFromPhoto,
   getProceduralFloorTextures,
   getProceduralFurnitureTextures,
+  getProceduralPatternTextures,
   getProceduralWallTextures,
   loadExternalOrDataUrlTexture,
   traceAlphaContourPoints,
@@ -77,7 +78,8 @@ function createWallFaceMaterials(
   const makeFaceMat = (
     matType: Wall['materialFront'],
     hex: string,
-    texUrl?: string
+    texUrl?: string,
+    pattern?: SurfacePattern
   ): THREE.MeshStandardMaterial => {
     if (texUrl) {
       const map = loadExternalOrDataUrlTexture(texUrl);
@@ -91,6 +93,17 @@ function createWallFaceMaterials(
         metalness: 0.04,
       });
     }
+    if (pattern && pattern.type !== 'none') {
+      const proc = getProceduralPatternTextures(pattern, realisticMode, wallLenM, wallHeightM);
+      return new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: proc.map,
+        bumpMap: proc.bumpMap,
+        bumpScale: proc.bumpScale,
+        roughness: proc.roughness,
+        metalness: proc.metalness,
+      });
+    }
     const proc = getProceduralWallTextures(matType, hex, realisticMode, wallLenM, wallHeightM);
     return new THREE.MeshStandardMaterial({
       color: proc.map ? 0xffffff : parseHexColor(hex, 0xf1f5f9),
@@ -102,8 +115,8 @@ function createWallFaceMaterials(
     });
   };
 
-  const frontMat = makeFaceMat(wall.materialFront, frontHex, wall.textureUrlFront);
-  const backMat = makeFaceMat(wall.materialBack, backHex, wall.textureUrlBack);
+  const frontMat = makeFaceMat(wall.materialFront, frontHex, wall.textureUrlFront, wall.patternFront);
+  const backMat = makeFaceMat(wall.materialBack, backHex, wall.textureUrlBack, wall.patternBack);
   const edgeMat = new THREE.MeshStandardMaterial({
     color: parseHexColor(frontHex, 0xe2e8f0),
     roughness: 0.85,
@@ -706,7 +719,7 @@ function buildRoomFloorMesh(room: RoomZone, realisticMode: boolean): THREE.Mesh 
   return mesh;
 }
 
-function buildRoomCeilingMesh(room: RoomZone, heightM: number): THREE.Group | null {
+function buildRoomCeilingMesh(room: RoomZone, heightM: number, realisticMode: boolean): THREE.Group | null {
   if (room.points.length < 3) return null;
   const group = new THREE.Group();
 
@@ -722,13 +735,28 @@ function buildRoomCeilingMesh(room: RoomZone, heightM: number): THREE.Group | nu
   const geo = new THREE.ShapeGeometry(shape);
   geo.rotateX(-Math.PI / 2);
 
-  const mat = new THREE.MeshStandardMaterial({
-    color: parseHexColor(room.ceilingColor, 0xf8fafc),
-    roughness: 0.9,
-    side: THREE.DoubleSide,
-  });
+  let mat: THREE.MeshStandardMaterial;
+  if (room.ceilingPattern && room.ceilingPattern.type !== 'none') {
+    const proc = getProceduralPatternTextures(room.ceilingPattern, realisticMode, 1, 1);
+    mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: proc.map,
+      bumpMap: proc.bumpMap,
+      bumpScale: proc.bumpScale,
+      roughness: proc.roughness,
+      metalness: proc.metalness,
+      side: THREE.DoubleSide,
+    });
+  } else {
+    mat = new THREE.MeshStandardMaterial({
+      color: parseHexColor(room.ceilingColor, 0xf8fafc),
+      roughness: 0.9,
+      side: THREE.DoubleSide,
+    });
+  }
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = heightM;
+  mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
 
@@ -1608,17 +1636,18 @@ export function buildFloor3DGroup(floor: Floor, options: BuildFloorOptions): THR
 
     const hM = (room.wallHeightCm ?? floor.defaultWallHeightCm ?? 250) * CM_TO_M;
     if (options.showCeiling && !floor.isExterior) {
-      const ceiling = buildRoomCeilingMesh(room, hM);
+      const ceiling = buildRoomCeilingMesh(room, hM, realisticMode);
       if (ceiling) floorGroup.add(ceiling);
     }
 
-    // Warm ambient ceiling lights inside each room in Realistic Mode
-    if (realisticMode && !floor.isExterior && room.points.length >= 3) {
+    // Warm ambient & ceiling-bounce lights inside each room when Realistic Mode or Ceiling is active
+    if ((realisticMode || options.showCeiling) && !floor.isExterior && room.points.length >= 3) {
       const c = polygonCentroid(room.points);
       const cx = c.x * CM_TO_M;
       const cz = c.y * CM_TO_M;
-      const roomLight = new THREE.PointLight(0xfff0dd, 0.55, 8.5, 1.5);
-      roomLight.position.set(cx, hM - 0.16, cz);
+      const bounceIntensity = options.showCeiling ? (realisticMode ? 0.95 : 0.72) : 0.55;
+      const roomLight = new THREE.PointLight(0xfff2e0, bounceIntensity, 9.5, 1.4);
+      roomLight.position.set(cx, hM - 0.18, cz);
       floorGroup.add(roomLight);
 
       if (options.showCeiling) {

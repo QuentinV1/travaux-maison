@@ -128,6 +128,7 @@ export const PhotosGallery: React.FC<PhotosGalleryProps> = ({
 
             <input
               type="text"
+              maxLength={140}
               placeholder="Légende (optionnel)"
               value={uploadCaption}
               onChange={(e) => setUploadCaption(e.target.value)}

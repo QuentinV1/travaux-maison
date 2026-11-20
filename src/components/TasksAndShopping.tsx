@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { Floor, House, ShoppingItem, TaskItem, TaskPriority, TaskStatus } from '../types';
 import { uid } from '../db';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { useEscapeKey } from '../utils/useEscapeKey';
 
 interface TasksAndShoppingProps {
@@ -465,6 +466,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
               <input
                 type="text"
                 required
+                maxLength={140}
                 placeholder="Ex: Poser le parquet de la chambre 1"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -474,6 +476,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                 <label className="text-xs text-slate-500 block mb-1">Pièce (optionnel)</label>
                 <input
                   list="room-suggestions"
+                  maxLength={80}
                   placeholder="Ex: Séjour Salon, Cuisine..."
                   value={roomName}
                   onChange={(e) => setRoomName(e.target.value)}
@@ -502,6 +505,8 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                   <label className="text-xs text-slate-500 block mb-1">Échéance (optionnel)</label>
                   <input
                     type="date"
+                    min="1900-01-01"
+                    max="2099-12-31"
                     value={dueDate}
                     onChange={(e) => setDueDate(e.target.value)}
                     className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm"
@@ -801,6 +806,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                   <div className="flex flex-wrap gap-2">
                     <input
                       type="text"
+                      maxLength={120}
                       placeholder="Ajouter un article (ex: Sac de colle 25kg)"
                       value={draft.name}
                       onChange={(e) =>
@@ -826,6 +832,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                     />
                     <input
                       type="text"
+                      maxLength={24}
                       placeholder="Unité"
                       value={draft.unit}
                       onChange={(e) =>
@@ -854,6 +861,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                     />
                     <input
                       type="text"
+                      maxLength={60}
                       placeholder="Magasin"
                       value={draft.store}
                       onChange={(e) =>
@@ -933,10 +941,14 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
             </div>
 
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(qrPayload.text);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
+              onClick={async () => {
+                const ok = await copyTextToClipboard(qrPayload.text);
+                if (ok) {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } else {
+                  alert('Copie automatique refusée par le navigateur. Sélectionnez et copiez le texte ci-dessus.');
+                }
               }}
               className="w-full py-3 rounded-xl bg-slate-900 text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-slate-800"
             >

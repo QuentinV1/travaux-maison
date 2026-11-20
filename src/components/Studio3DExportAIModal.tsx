@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
@@ -31,6 +31,7 @@ import { useEscapeKey } from '../utils/useEscapeKey';
 interface Studio3DExportAIModalProps {
   isOpen: boolean;
   floor: Floor;
+  initialRoomName?: string;
   onClose: () => void;
   onUpdateFloor: (updated: Floor) => void;
   onOpenAISettings?: () => void;
@@ -70,6 +71,7 @@ function downloadBlobOrUrl(href: string, filename: string) {
 export const Studio3DExportAIModal: React.FC<Studio3DExportAIModalProps> = ({
   isOpen,
   floor,
+  initialRoomName,
   onClose,
   onUpdateFloor,
   onOpenAISettings,
@@ -103,6 +105,19 @@ export const Studio3DExportAIModal: React.FC<Studio3DExportAIModalProps> = ({
 
   const [importIs360, setImportIs360] = useState(false);
   const [glbTargetMode, setGlbTargetMode] = useState<'furniture' | 'scene'>('furniture');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const snap = onCaptureCanvasView();
+    if (snap) setCapturedPreview(snap);
+    if (initialRoomName) {
+      const match = floor.rooms.find((r) => r.name === initialRoomName);
+      if (match) setTargetRoomId(match.id);
+    } else if (floor.rooms[0] && !targetRoomId) {
+      setTargetRoomId(floor.rooms[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialRoomName]);
 
   const flowPromptText = useMemo(() => {
     const roomDesc = floor.rooms

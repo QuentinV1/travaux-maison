@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import type { User } from 'firebase/auth';
 import {
   Home,
   Map,
   CheckSquare,
   Camera,
   Box,
+  Wrench,
+  Cloud,
   Plus,
   Download,
   Upload,
@@ -14,15 +17,43 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { db, seedInitialDataIfEmpty, uid } from './db';
-import type { AppTab, Floor, House, RoomPhoto, ShoppingItem, TaskItem } from './types';
+import type {
+  AppTab,
+  Floor,
+  House,
+  HouseSyncConfig,
+  MaintenanceDocument,
+  MaintenanceEquipment,
+  MaintenanceIntervention,
+  RoomPhoto,
+  ServiceProvider,
+  ShoppingItem,
+  TaskItem,
+} from './types';
 import { FloorPlanEditor } from './components/FloorPlanEditor';
 import { TasksAndShopping } from './components/TasksAndShopping';
+import { MaintenanceModule } from './components/MaintenanceModule';
 import { PhotosGallery } from './components/PhotosGallery';
 import { AISettingsModal } from './components/AISettingsModal';
 import { WebCatalogModal } from './components/WebCatalogModal';
+import { CloudSyncModal } from './components/CloudSyncModal';
 import { hasGeminiKey } from './utils/settings';
 import { useEscapeKey } from './utils/useEscapeKey';
 import type { ExtractedWebProduct, SuggestedDecoItem } from './utils/aiService';
+import {
+  deleteEquipmentRemote,
+  deleteInterventionRemote,
+  deleteProviderRemote,
+  deleteShoppingRemote,
+  deleteTaskRemote,
+  pushEquipmentRemote,
+  pushInterventionRemote,
+  pushProviderRemote,
+  pushShoppingRemote,
+  pushTaskRemote,
+  subscribeAuth,
+  subscribeWorkspaceCollections,
+} from './utils/firebaseSync';
 
 const FloorPlan3DViewer = React.lazy(() =>
   import('./components/FloorPlan3DViewer').then((m) => ({ default: m.FloorPlan3DViewer }))
@@ -42,8 +73,10 @@ export function App() {
   // Delete House Modal
   const [showDeleteHouseModal, setShowDeleteHouseModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
+  const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
   const [showWebCatalogFrom3D, setShowWebCatalogFrom3D] = useState(false);
   const [aiReady, setAiReady] = useState(() => hasGeminiKey());
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -56,6 +89,11 @@ export function App() {
         console.error('Erreur lors de l’initialisation des données:', err);
       })
       .finally(() => setReady(true));
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeAuth((user) => setFirebaseUser(user));
+    return () => unsub();
   }, []);
 
   const houses = useLiveQuery(() => db.houses.toArray(), [], [] as House[]);
@@ -101,6 +139,80 @@ export function App() {
     [activeHouseId],
     [] as RoomPhoto[]
   );
+
+  const maintenanceEquipments = useLiveQuery(
+    () =>
+      activeHouseId
+        ? db.maintenanceEquipments.where('houseId').equals(activeHouseId).toArray()
+        : [],
+    [activeHouseId],
+    [] as MaintenanceEquipment[]
+  );
+
+  const maintenanceProviders = useLiveQuery(
+    () =>
+      activeHouseId
+        ? db.maintenanceProviders.where('houseId').equals(activeHouseId).toArray()
+        : [],
+    [activeHouseId],
+    [] as ServiceProvider[]
+  );
+
+  const maintenanceInterventions = useLiveQuery(
+    () =>
+      activeHouseId
+        ? db.maintenanceInterventions.where('houseId').equals(activeHouseId).toArray()
+        : [],
+    [activeHouseId],
+    [] as MaintenanceIntervention[]
+  );
+
+  const maintenanceDocuments = useLiveQuery(
+    () =>
+      activeHouseId
+        ? db.maintenanceDocuments.where('houseId').equals(activeHouseId).toArray()
+        : [],
+    [activeHouseId],
+    [] as MaintenanceDocument[]
+  );
+
+  const syncConfig = useLiveQuery(
+    () => (activeHouseId ? db.houseSyncConfigs.get(activeHouseId) : undefined),
+    [activeHouseId],
+    undefined as HouseSyncConfig | undefined
+  );
+
+  useEffect(() => {
+    if (!firebaseUser || !activeHouseId || !syncConfig?.enabled || !syncConfig.workspaceId) {
+      return;
+    }
+    const houseId = activeHouseId;
+    const replaceHouseSubset = async <T extends { id: string; houseId: string }>(
+      table: {
+        where: (idx: string) => { equals: (v: string) => { primaryKeys: () => Promise<string[]> } };
+        bulkDelete: (keys: string[]) => Promise<void>;
+        bulkPut: (items: T[]) => Promise<unknown>;
+      },
+      incoming: T[]
+    ) => {
+      const existingKeys = await table.where('houseId').equals(houseId).primaryKeys();
+      const incomingIds = new Set(incoming.map((i) => i.id));
+      const toDelete = existingKeys.filter((k) => !incomingIds.has(k));
+      if (toDelete.length > 0) await table.bulkDelete(toDelete);
+      if (incoming.length > 0) await table.bulkPut(incoming);
+    };
+
+    const unsub = subscribeWorkspaceCollections(syncConfig.workspaceId, houseId, {
+      onTasks: (items) => void replaceHouseSubset(db.tasks, items),
+      onShoppingItems: (items) => void replaceHouseSubset(db.shoppingItems, items),
+      onEquipments: (items) => void replaceHouseSubset(db.maintenanceEquipments, items),
+      onProviders: (items) => void replaceHouseSubset(db.maintenanceProviders, items),
+      onInterventions: (items) => void replaceHouseSubset(db.maintenanceInterventions, items),
+      onError: (err) => console.error('Erreur synchro Firebase:', err),
+    });
+
+    return () => unsub();
+  }, [firebaseUser, activeHouseId, syncConfig?.enabled, syncConfig?.workspaceId]);
 
   const handleCreateHouse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,13 +273,33 @@ export function App() {
   const handleDeleteHouse = async () => {
     if (!activeHouse) return;
     const idToDelete = activeHouse.id;
-    await db.transaction('rw', [db.houses, db.floors, db.tasks, db.shoppingItems, db.photos], async () => {
-      await db.houses.delete(idToDelete);
-      await db.floors.where('houseId').equals(idToDelete).delete();
-      await db.tasks.where('houseId').equals(idToDelete).delete();
-      await db.shoppingItems.where('houseId').equals(idToDelete).delete();
-      await db.photos.where('houseId').equals(idToDelete).delete();
-    });
+    await db.transaction(
+      'rw',
+      [
+        db.houses,
+        db.floors,
+        db.tasks,
+        db.shoppingItems,
+        db.photos,
+        db.maintenanceEquipments,
+        db.maintenanceProviders,
+        db.maintenanceInterventions,
+        db.maintenanceDocuments,
+        db.houseSyncConfigs,
+      ],
+      async () => {
+        await db.houses.delete(idToDelete);
+        await db.floors.where('houseId').equals(idToDelete).delete();
+        await db.tasks.where('houseId').equals(idToDelete).delete();
+        await db.shoppingItems.where('houseId').equals(idToDelete).delete();
+        await db.photos.where('houseId').equals(idToDelete).delete();
+        await db.maintenanceEquipments.where('houseId').equals(idToDelete).delete();
+        await db.maintenanceProviders.where('houseId').equals(idToDelete).delete();
+        await db.maintenanceInterventions.where('houseId').equals(idToDelete).delete();
+        await db.maintenanceDocuments.where('houseId').equals(idToDelete).delete();
+        await db.houseSyncConfigs.delete(idToDelete);
+      }
+    );
     setShowDeleteHouseModal(false);
 
     const remaining = houses.filter((h) => h.id !== idToDelete);
@@ -266,6 +398,10 @@ export function App() {
       tasks: await db.tasks.toArray(),
       shoppingItems: await db.shoppingItems.toArray(),
       photos: await db.photos.toArray(),
+      maintenanceEquipments: await db.maintenanceEquipments.toArray(),
+      maintenanceProviders: await db.maintenanceProviders.toArray(),
+      maintenanceInterventions: await db.maintenanceInterventions.toArray(),
+      maintenanceDocuments: await db.maintenanceDocuments.toArray(),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -293,13 +429,35 @@ export function App() {
       ) {
         throw new Error('Format de sauvegarde non reconnu.');
       }
-      await db.transaction('rw', [db.houses, db.floors, db.tasks, db.shoppingItems, db.photos], async () => {
-        if (Array.isArray(data.houses)) await db.houses.bulkPut(data.houses);
-        if (Array.isArray(data.floors)) await db.floors.bulkPut(data.floors);
-        if (Array.isArray(data.tasks)) await db.tasks.bulkPut(data.tasks);
-        if (Array.isArray(data.shoppingItems)) await db.shoppingItems.bulkPut(data.shoppingItems);
-        if (Array.isArray(data.photos)) await db.photos.bulkPut(data.photos);
-      });
+      await db.transaction(
+        'rw',
+        [
+          db.houses,
+          db.floors,
+          db.tasks,
+          db.shoppingItems,
+          db.photos,
+          db.maintenanceEquipments,
+          db.maintenanceProviders,
+          db.maintenanceInterventions,
+          db.maintenanceDocuments,
+        ],
+        async () => {
+          if (Array.isArray(data.houses)) await db.houses.bulkPut(data.houses);
+          if (Array.isArray(data.floors)) await db.floors.bulkPut(data.floors);
+          if (Array.isArray(data.tasks)) await db.tasks.bulkPut(data.tasks);
+          if (Array.isArray(data.shoppingItems)) await db.shoppingItems.bulkPut(data.shoppingItems);
+          if (Array.isArray(data.photos)) await db.photos.bulkPut(data.photos);
+          if (Array.isArray(data.maintenanceEquipments))
+            await db.maintenanceEquipments.bulkPut(data.maintenanceEquipments);
+          if (Array.isArray(data.maintenanceProviders))
+            await db.maintenanceProviders.bulkPut(data.maintenanceProviders);
+          if (Array.isArray(data.maintenanceInterventions))
+            await db.maintenanceInterventions.bulkPut(data.maintenanceInterventions);
+          if (Array.isArray(data.maintenanceDocuments))
+            await db.maintenanceDocuments.bulkPut(data.maintenanceDocuments);
+        }
+      );
       if (data.houses?.[0]?.id) {
         setActiveHouseId(data.houses[0].id);
       }
@@ -308,6 +466,27 @@ export function App() {
       setBackupError(
         'Impossible de restaurer ce fichier : veuillez sélectionner une sauvegarde JSON valide exportée depuis MaMaison.'
       );
+    }
+  };
+
+  const remoteWorkspaceId = firebaseUser && syncConfig?.enabled ? syncConfig.workspaceId : null;
+
+  const handlePushLocalToRemote = async (workspaceId: string) => {
+    if (!firebaseUser) return;
+    await Promise.all([
+      ...tasks.map((t) => pushTaskRemote(workspaceId, t)),
+      ...shoppingItems.map((s) => pushShoppingRemote(workspaceId, s)),
+      ...maintenanceEquipments.map((e) => pushEquipmentRemote(workspaceId, e)),
+      ...maintenanceProviders.map((p) => pushProviderRemote(workspaceId, p)),
+      ...maintenanceInterventions.map((i) => pushInterventionRemote(workspaceId, i)),
+    ]);
+    if (activeHouse) {
+      await db.houseSyncConfigs.put({
+        houseId: activeHouse.id,
+        workspaceId,
+        enabled: true,
+        lastSyncedAt: new Date().toISOString(),
+      });
     }
   };
 
@@ -462,12 +641,28 @@ export function App() {
         <nav className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200">
           <NavTab active={activeTab === 'plan'} onClick={() => setActiveTab('plan')} icon={<Map className="w-4 h-4" />} label="Plan 2D" />
           <NavTab active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<CheckSquare className="w-4 h-4" />} label="Tâches & Courses" />
+          <NavTab active={activeTab === 'maintenance'} onClick={() => setActiveTab('maintenance')} icon={<Wrench className="w-4 h-4" />} label="Entretien" />
           <NavTab active={activeTab === 'photos'} onClick={() => setActiveTab('photos')} icon={<Camera className="w-4 h-4" />} label="Photos" />
           <NavTab active={activeTab === '3d'} onClick={() => setActiveTab('3d')} icon={<Box className="w-4 h-4" />} label="Vue 3D" />
         </nav>
 
-        {/* Backup & AI Settings Actions */}
+        {/* Backup, Cloud Sync & AI Settings Actions */}
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowCloudSyncModal(true)}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[40px] transition-colors ${
+              remoteWorkspaceId
+                ? 'bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+            }`}
+            title="Synchronisation Foyer Firebase (partage à 2)"
+          >
+            <Cloud className="w-4 h-4 text-sky-600" />
+            <span className="hidden md:inline">Foyer</span>
+            <span
+              className={`w-2 h-2 rounded-full ${remoteWorkspaceId ? 'bg-emerald-500' : 'bg-slate-300'}`}
+            />
+          </button>
           <button
             onClick={() => setShowAISettingsModal(true)}
             className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[40px] transition-colors ${
@@ -554,16 +749,76 @@ export function App() {
             floors={floors}
             tasks={tasks}
             shoppingItems={shoppingItems}
-            onAddTask={(t) => db.tasks.add(t)}
-            onUpdateTask={(t) => db.tasks.put(t)}
+            onAddTask={async (t) => {
+              await db.tasks.add(t);
+              if (remoteWorkspaceId) await pushTaskRemote(remoteWorkspaceId, t);
+            }}
+            onUpdateTask={async (t) => {
+              await db.tasks.put(t);
+              if (remoteWorkspaceId) await pushTaskRemote(remoteWorkspaceId, t);
+            }}
             onDeleteTask={async (id) => {
+              const linked = await db.shoppingItems.where('taskId').equals(id).toArray();
               await db.tasks.delete(id);
               await db.shoppingItems.where('taskId').equals(id).delete();
+              if (remoteWorkspaceId) {
+                await deleteTaskRemote(remoteWorkspaceId, id);
+                await Promise.all(linked.map((s) => deleteShoppingRemote(remoteWorkspaceId, s.id)));
+              }
             }}
-            onAddShoppingItem={(s) => db.shoppingItems.add(s)}
-            onUpdateShoppingItem={(s) => db.shoppingItems.put(s)}
-            onToggleShoppingItem={(s) => db.shoppingItems.update(s.id, { checked: !s.checked })}
-            onDeleteShoppingItem={(id) => db.shoppingItems.delete(id)}
+            onAddShoppingItem={async (s) => {
+              await db.shoppingItems.add(s);
+              if (remoteWorkspaceId) await pushShoppingRemote(remoteWorkspaceId, s);
+            }}
+            onUpdateShoppingItem={async (s) => {
+              await db.shoppingItems.put(s);
+              if (remoteWorkspaceId) await pushShoppingRemote(remoteWorkspaceId, s);
+            }}
+            onToggleShoppingItem={async (s) => {
+              const updated = { ...s, checked: !s.checked };
+              await db.shoppingItems.put(updated);
+              if (remoteWorkspaceId) await pushShoppingRemote(remoteWorkspaceId, updated);
+            }}
+            onDeleteShoppingItem={async (id) => {
+              await db.shoppingItems.delete(id);
+              if (remoteWorkspaceId) await deleteShoppingRemote(remoteWorkspaceId, id);
+            }}
+          />
+        )}
+
+        {activeTab === 'maintenance' && activeHouse && (
+          <MaintenanceModule
+            house={activeHouse}
+            equipments={maintenanceEquipments}
+            providers={maintenanceProviders}
+            interventions={maintenanceInterventions}
+            documents={maintenanceDocuments}
+            onSaveEquipment={async (eq) => {
+              await db.maintenanceEquipments.put(eq);
+              if (remoteWorkspaceId) await pushEquipmentRemote(remoteWorkspaceId, eq);
+            }}
+            onDeleteEquipment={async (id) => {
+              await db.maintenanceEquipments.delete(id);
+              if (remoteWorkspaceId) await deleteEquipmentRemote(remoteWorkspaceId, id);
+            }}
+            onSaveProvider={async (prov) => {
+              await db.maintenanceProviders.put(prov);
+              if (remoteWorkspaceId) await pushProviderRemote(remoteWorkspaceId, prov);
+            }}
+            onDeleteProvider={async (id) => {
+              await db.maintenanceProviders.delete(id);
+              if (remoteWorkspaceId) await deleteProviderRemote(remoteWorkspaceId, id);
+            }}
+            onSaveIntervention={async (inter) => {
+              await db.maintenanceInterventions.put(inter);
+              if (remoteWorkspaceId) await pushInterventionRemote(remoteWorkspaceId, inter);
+            }}
+            onDeleteIntervention={async (id) => {
+              await db.maintenanceInterventions.delete(id);
+              if (remoteWorkspaceId) await deleteInterventionRemote(remoteWorkspaceId, id);
+            }}
+            onAddDocument={(docItem) => db.maintenanceDocuments.put(docItem).then(() => undefined)}
+            onDeleteDocument={(id) => db.maintenanceDocuments.delete(id)}
           />
         )}
 
@@ -620,8 +875,8 @@ export function App() {
               <strong className="text-slate-900 font-semibold">« {activeHouse.name} »</strong> ?
             </p>
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-700 space-y-1">
-              <p className="font-semibold">⚠️ Cette action est irréversible.</p>
-              <p>Tous les étages, murs, ouvertures, pièces, meubles, tâches, listes de courses et photos de cette maison seront définitivement effacés.</p>
+              <p className="font-semibold">Cette action est irréversible.</p>
+              <p>Tous les étages, murs, ouvertures, pièces, meubles, tâches, listes de courses, entretiens et photos de cette maison seront définitivement effacés.</p>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -686,6 +941,29 @@ export function App() {
         isOpen={showAISettingsModal}
         onClose={() => setShowAISettingsModal(false)}
         onSaved={() => setAiReady(hasGeminiKey())}
+      />
+
+      {/* Cloud Sync Modal (Firebase quentin-apps-hub) */}
+      <CloudSyncModal
+        isOpen={showCloudSyncModal}
+        onClose={() => setShowCloudSyncModal(false)}
+        user={firebaseUser}
+        house={activeHouse}
+        syncConfig={syncConfig ?? null}
+        onEnableSync={async (workspaceId) => {
+          if (!activeHouse) return;
+          await db.houseSyncConfigs.put({
+            houseId: activeHouse.id,
+            workspaceId,
+            enabled: true,
+            lastSyncedAt: new Date().toISOString(),
+          });
+        }}
+        onDisableSync={async () => {
+          if (!activeHouse) return;
+          await db.houseSyncConfigs.delete(activeHouse.id);
+        }}
+        onPushLocalToRemote={handlePushLocalToRemote}
       />
 
       {/* Web Catalog Modal launched directly from 3D View */}

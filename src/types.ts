@@ -27,6 +27,22 @@ export type WallMaterial =
   | 'wallpaper'
   | 'claustra';
 
+export type SurfacePatternType =
+  | 'none'
+  | 'checkerboard'
+  | 'stripes-vertical'
+  | 'stripes-horizontal'
+  | 'herringbone-wallpaper'
+  | 'terrazzo-dots'
+  | 'geometric-diamond';
+
+export interface SurfacePattern {
+  type: SurfacePatternType;
+  primaryColor: string;
+  secondaryColor: string;
+  scaleCm?: number; // repeat size in cm (default 40)
+}
+
 export interface Point {
   x: number; // in cm
   y: number; // in cm
@@ -45,6 +61,8 @@ export interface Wall {
   colorBack?: string;
   materialFront?: WallMaterial;
   materialBack?: WallMaterial;
+  patternFront?: SurfacePattern;
+  patternBack?: SurfacePattern;
   textureUrlFront?: string;
   textureUrlBack?: string;
   isLowWall?: boolean;
@@ -97,6 +115,7 @@ export interface RoomZone {
   floorScale?: number;
   ceilingColor?: string;
   ceilingBeams?: boolean;
+  ceilingPattern?: SurfacePattern;
   aiRenderUrl?: string;
   aiRenderIs360?: boolean;
   aiRenderPrompt?: string;
@@ -186,6 +205,7 @@ export interface Floor {
   order: number;
   isExterior: boolean;
   defaultWallHeightCm: number;
+  southAngleDeg?: number; // 0 = Sud en bas (+Y), 90 = Ouest/Gauche (-X), 180 = Haut (-Y), 270 = Est/Droite (+X)
   walls: Wall[];
   openings: Opening[];
   rooms: RoomZone[];
@@ -243,4 +263,93 @@ export interface RoomPhoto {
   createdAt: string;
 }
 
-export type AppTab = 'plan' | 'tasks' | 'photos' | '3d';
+export type AppTab = 'plan' | 'tasks' | 'maintenance' | 'photos' | '3d';
+
+export type EquipmentCategory =
+  | 'heat_pump'
+  | 'heating'
+  | 'radiator'
+  | 'electricity'
+  | 'plumbing'
+  | 'ventilation'
+  | 'other';
+
+export interface MaintenanceEquipment {
+  id: string;
+  houseId: string;
+  name: string;
+  category: EquipmentCategory;
+  location?: string;
+  brand?: string;
+  model?: string;
+  serialNumber?: string;
+  installedAt?: string;
+  periodicityMonths: number;
+  lastServiceDate?: string;
+  nextServiceDate?: string;
+  estimatedAnnualCost?: number;
+  providerId?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ServiceProvider {
+  id: string;
+  houseId: string;
+  companyName: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  address?: string;
+  specialty?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface MaintenanceIntervention {
+  id: string;
+  houseId: string;
+  equipmentId: string;
+  providerId?: string;
+  date: string;
+  title: string;
+  cost?: number;
+  nextDueDate?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type MaintenanceDocType =
+  | 'invoice'
+  | 'quote'
+  | 'certificate'
+  | 'manual'
+  | 'photo'
+  | 'other';
+
+export interface MaintenanceDocument {
+  id: string;
+  houseId: string;
+  equipmentId?: string;
+  interventionId?: string;
+  providerId?: string;
+  docType: MaintenanceDocType;
+  title: string;
+  date?: string;
+  amount?: number;
+  fileName: string;
+  mimeType: string;
+  dataUrl: string;
+  createdAt: string;
+}
+
+export interface HouseSyncConfig {
+  houseId: string;
+  workspaceId: string;
+  enabled: boolean;
+  lastSyncedAt?: string;
+}

@@ -4,6 +4,7 @@ import type {
   FurnitureMaterialType,
   FurnitureType,
   OpeningType,
+  SurfacePatternType,
   WallMaterial,
 } from '../types';
 
@@ -189,4 +190,14 @@ export const ARCH_SHAPE_LABELS: Record<ArchShape, string> = {
   'rounded-corners': 'Coins supérieurs arrondis',
   asymmetric: 'Demi-arche asymétrique',
   pointed: 'Arche Ogive',
+};
+
+export const SURFACE_PATTERN_LABELS: Record<SurfacePatternType, string> = {
+  none: 'Aucun motif (uni)',
+  checkerboard: 'Damier bicolore',
+  'stripes-vertical': 'Rayures verticales',
+  'stripes-horizontal': 'Rayures horizontales',
+  'herringbone-wallpaper': 'Papier peint chevron',
+  'terrazzo-dots': 'Papier peint pois / terrazzo',
+  'geometric-diamond': 'Losanges géométriques',
 };

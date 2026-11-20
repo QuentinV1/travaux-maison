@@ -27,6 +27,7 @@ import {
   Eye,
   Upload,
   Trash2,
+  Camera,
 } from 'lucide-react';
 import type {
   ArchShape,
@@ -37,6 +38,7 @@ import type {
   Opening,
   OpeningType,
   RoomZone,
+  SurfacePattern,
   Wall,
   WallMaterial,
 } from '../types';
@@ -58,7 +60,9 @@ import {
   WALL_MATERIAL_LABELS,
 } from '../data/furnitureCatalog';
 import { removeImageBackground } from '../utils/textures3d';
+import { computeSunPosition } from '../utils/solar';
 import { Studio3DExportAIModal } from './Studio3DExportAIModal';
+import { SurfacePatternControls } from './SurfacePatternControls';
 import { useEscapeKey } from '../utils/useEscapeKey';
 
 interface FloorPlan3DViewerProps {
@@ -267,8 +271,9 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
     sun.shadow.camera.top = d;
     sun.shadow.camera.bottom = -d;
     sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.025;
 
-    scene.add(ambient, hemi, sun);
+    scene.add(ambient, hemi, sun, sun.target);
 
     const grid = new THREE.GridHelper(60, 60, 0x94a3b8, 0xcbd5e1);
     grid.position.y = -0.002;
@@ -593,17 +598,48 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
     }
 
     if (lighting === 'day') {
-      refs.scene.background = new THREE.Color(realisticMode ? 0xeef2f6 : 0xf1f5f9);
-      refs.ambient.intensity = realisticMode ? 0.42 : 0.52;
-      refs.hemi.intensity = realisticMode ? 0.58 : 0.52;
+      if (realisticMode) {
+        const skyCanvas = document.createElement('canvas');
+        skyCanvas.width = 4;
+        skyCanvas.height = 128;
+        const sctx = skyCanvas.getContext('2d');
+        if (sctx) {
+          const grad = sctx.createLinearGradient(0, 0, 0, 128);
+          const warm = sunHour >= 18 || sunHour <= 9;
+          grad.addColorStop(0, warm ? '#475569' : '#60a5fa');
+          grad.addColorStop(0.55, warm ? '#fed7aa' : '#dbeafe');
+          grad.addColorStop(1, '#f1f5f9');
+          sctx.fillStyle = grad;
+          sctx.fillRect(0, 0, 4, 128);
+          const skyTex = new THREE.CanvasTexture(skyCanvas);
+          skyTex.colorSpace = THREE.SRGBColorSpace;
+          refs.scene.background = skyTex;
+        } else {
+          refs.scene.background = new THREE.Color(0xeef2f6);
+        }
+      } else {
+        refs.scene.background = new THREE.Color(0xf1f5f9);
+      }
+      refs.ambient.intensity = realisticMode ? 0.38 : 0.52;
+      refs.hemi.intensity = realisticMode ? 0.62 : 0.52;
+      const sunPos = computeSunPosition(
+        refs.center,
+        sunHour,
+        activeFloor?.southAngleDeg ?? 0,
+        Math.max(24, refs.radius * 2.2)
+      );
+      refs.sun.position.set(sunPos.x, sunPos.y, sunPos.z);
+      refs.sun.target.position.copy(refs.center);
+      refs.sun.target.updateMatrixWorld();
+      const frustum = Math.max(12, refs.radius * 1.4);
+      refs.sun.shadow.camera.left = -frustum;
+      refs.sun.shadow.camera.right = frustum;
+      refs.sun.shadow.camera.top = frustum;
+      refs.sun.shadow.camera.bottom = -frustum;
+      refs.sun.shadow.camera.updateProjectionMatrix();
       const t = (sunHour - 6) / 14;
       const angle = t * Math.PI;
-      const dist = 28;
-      const sx = refs.center.x + Math.cos(angle) * dist;
-      const sy = Math.max(5, Math.sin(angle) * dist);
-      const sz = refs.center.z + 12;
-      refs.sun.position.set(sx, sy, sz);
-      refs.sun.intensity = (realisticMode ? 1.1 : 0.9) + Math.sin(angle) * 0.45;
+      refs.sun.intensity = (realisticMode ? 1.25 : 0.95) + Math.sin(angle) * 0.5;
       refs.sun.color.setHex(sunHour >= 18 || sunHour <= 9 ? 0xfed7aa : 0xfffbeb);
     } else {
       refs.scene.background = new THREE.Color(0x0f172a);
@@ -612,7 +648,7 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
       refs.sun.intensity = 0.65;
       refs.sun.color.setHex(0xfde68a);
     }
-  }, [showGrid, lighting, sunHour, realisticMode]);
+  }, [showGrid, lighting, sunHour, realisticMode, activeFloor?.southAngleDeg]);
 
   const captureCanvasView = (): string | null => {
     const refs = sceneRefs.current;
@@ -661,7 +697,15 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
   const updateWallStyle = (
     wall: Wall,
     side: 'front' | 'back',
-    patch: { color?: string; material?: WallMaterial; textureUrl?: string; clearTexture?: boolean; isLowWall?: boolean; heightCm?: number }
+    patch: {
+      color?: string;
+      material?: WallMaterial;
+      pattern?: SurfacePattern | null;
+      textureUrl?: string;
+      clearTexture?: boolean;
+      isLowWall?: boolean;
+      heightCm?: number;
+    }
   ) => {
     if (!activeFloor || !onUpdateFloor) return;
 
@@ -717,12 +761,14 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
             if (frontInRoom) {
               if (patch.color !== undefined) next.colorFront = patch.color;
               if (patch.material !== undefined) next.materialFront = patch.material;
+              if (patch.pattern !== undefined) next.patternFront = patch.pattern ?? undefined;
               if (patch.textureUrl !== undefined) next.textureUrlFront = patch.textureUrl;
               if (patch.clearTexture) next.textureUrlFront = undefined;
             }
             if (backInRoom) {
               if (patch.color !== undefined) next.colorBack = patch.color;
               if (patch.material !== undefined) next.materialBack = patch.material;
+              if (patch.pattern !== undefined) next.patternBack = patch.pattern ?? undefined;
               if (patch.textureUrl !== undefined) next.textureUrlBack = patch.textureUrl;
               if (patch.clearTexture) next.textureUrlBack = undefined;
             }
@@ -743,12 +789,14 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
         if (applyFront) {
           if (patch.color !== undefined) next.colorFront = patch.color;
           if (patch.material !== undefined) next.materialFront = patch.material;
+          if (patch.pattern !== undefined) next.patternFront = patch.pattern ?? undefined;
           if (patch.textureUrl !== undefined) next.textureUrlFront = patch.textureUrl;
           if (patch.clearTexture) next.textureUrlFront = undefined;
         }
         if (applyBack) {
           if (patch.color !== undefined) next.colorBack = patch.color;
           if (patch.material !== undefined) next.materialBack = patch.material;
+          if (patch.pattern !== undefined) next.patternBack = patch.pattern ?? undefined;
           if (patch.textureUrl !== undefined) next.textureUrlBack = patch.textureUrl;
           if (patch.clearTexture) next.textureUrlBack = undefined;
         }
@@ -939,14 +987,24 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
             </button>
           )}
           {activeFloor && onUpdateFloor && (
-            <button
-              onClick={() => setShowStudioModal(true)}
-              title="Studio IA, Rendu photo, Export .GLB/.OBJ, Google Flow & Ré-import 360°"
-              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1 shadow-xs"
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Studio IA / Export</span>
-            </button>
+            <>
+              <button
+                onClick={() => setShowStudioModal(true)}
+                title="Prendre une photo de cette vue 3D et générer un rendu IA photoréaliste"
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1 shadow-xs"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Photo IA</span>
+              </button>
+              <button
+                onClick={() => setShowStudioModal(true)}
+                title="Studio IA, Rendu photo, Export .GLB/.OBJ, Google Flow & Ré-import 360°"
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1 shadow-xs"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Studio IA / Export</span>
+              </button>
+            </>
           )}
 
           <div className="w-px h-5 bg-slate-200 mx-0.5" />
@@ -1130,6 +1188,8 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
                   (side === 'front' ? selectedWall.materialFront : selectedWall.materialBack) ?? 'paint-matte';
                 const currentTex =
                   side === 'front' ? selectedWall.textureUrlFront : selectedWall.textureUrlBack;
+                const currentPattern =
+                  side === 'front' ? selectedWall.patternFront : selectedWall.patternBack;
 
                 return (
                   <div className="space-y-3 text-xs">
@@ -1259,6 +1319,17 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
                         </button>
                       )}
                     </div>
+
+                    {/* Wall Pattern (Damier / Papier peint) */}
+                    <SurfacePatternControls
+                      label="Motif mural (Damier, Papier peint…)"
+                      pattern={currentPattern}
+                      defaultPrimary={currentColor}
+                      defaultSecondary="#334155"
+                      onChange={(nextPattern) =>
+                        updateWallStyle(selectedWall, side, { pattern: nextPattern ?? null })
+                      }
+                    />
 
                     {/* Low wall / Height */}
                     <div className="pt-2 border-t border-slate-100 space-y-1.5">
@@ -1425,6 +1496,16 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
                         }}
                       />
                     </label>
+                    <SurfacePatternControls
+                      label="Motif du plafond (Damier, Papier peint…)"
+                      pattern={selectedRoom.ceilingPattern}
+                      defaultPrimary={selectedRoom.ceilingColor ?? '#f8fafc'}
+                      defaultSecondary="#334155"
+                      onChange={(nextPattern) => {
+                        if (nextPattern && !showCeiling) setShowCeiling(true);
+                        patchRoom(selectedRoom.id, { ceilingPattern: nextPattern });
+                      }}
+                    />
                   </div>
                 </div>
               )}
@@ -1875,6 +1956,7 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
         <Studio3DExportAIModal
           isOpen={showStudioModal}
           floor={activeFloor}
+          initialRoomName={currentRoomInfo?.name}
           onClose={() => setShowStudioModal(false)}
           onUpdateFloor={onUpdateFloor}
           onOpenAISettings={onOpenAISettings}
