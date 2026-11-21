@@ -886,7 +886,7 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
 
           {/* FPS Current Room HUD & Teleport */}
           {navMode === 'fps' && (
-            <div className="pointer-events-auto flex items-center gap-2 bg-slate-900/90 text-white backdrop-blur-md rounded-2xl px-3 py-1.5 shadow-md text-xs">
+            <div className="pointer-events-auto flex flex-wrap items-center gap-2 bg-slate-900/90 text-white backdrop-blur-md rounded-2xl px-3 py-1.5 shadow-md text-xs max-w-full">
               <Footprints className="w-3.5 h-3.5 text-emerald-400" />
               <span>
                 {currentRoomInfo
@@ -915,8 +915,8 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
         </div>
 
         {/* Top Right: Camera Presets, FPS Mode & Scene Toggles */}
-        <div className="flex flex-col gap-2 pointer-events-none items-end self-end sm:self-auto shrink-0">
-        <div className="pointer-events-auto flex items-center gap-1 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm">
+        <div className="flex flex-col gap-2 pointer-events-none items-end self-end sm:self-auto shrink-0 max-w-full">
+        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm max-w-full">
           <button
             onClick={() => applyCameraPreset('iso')}
             title="Vue 3D isométrique"
@@ -949,7 +949,7 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
           </button>
         </div>
 
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm">
+        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm max-w-full">
           {onUpdateFloor && (
             <button
               onClick={() => setCustomizeMode((v) => !v)}
@@ -1100,7 +1100,7 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
 
       {/* Bottom Left: Tactile D-pad in FPS mode OR navigation hint */}
       {navMode === 'fps' ? (
-        <div className="absolute bottom-4 left-4 flex flex-col items-center gap-1 bg-white/85 backdrop-blur-md border border-slate-200 rounded-2xl p-2 shadow-lg">
+        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 flex flex-col items-center gap-1 bg-white/85 backdrop-blur-md border border-slate-200 rounded-2xl p-2 shadow-lg z-10">
           <button
             onPointerDown={() => (touchMoveRef.current.forward = 1)}
             onPointerUp={() => (touchMoveRef.current.forward = 0)}
@@ -1151,7 +1151,7 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
 
       {/* Bottom Right / Side: Interactive 3D Customization Panel OR Info Card */}
       {selectedInfo && (
-        <div className="absolute bottom-3 right-3 w-80 max-w-[92vw] max-h-[75vh] overflow-y-auto bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-3.5 shadow-2xl space-y-3 z-20">
+        <div className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 w-[calc(100vw-1.5rem)] sm:w-80 max-w-[92vw] max-h-[55dvh] sm:max-h-[75vh] overflow-y-auto bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-3.5 shadow-2xl space-y-3 z-20">
           <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
             <div className="min-w-0 flex-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">

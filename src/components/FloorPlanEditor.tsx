@@ -1510,7 +1510,7 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
         </div>
 
         {/* Live Floor Metrics */}
-        <div className="flex items-center gap-2.5 text-xs sm:text-sm text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs sm:text-sm text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 max-w-full">
           <span title="Surface au sol totale des pièces">
             Sol : <strong className="text-slate-900">{formatAreaM2(metrics.totalFloorAreaM2)}</strong>
           </span>
@@ -2720,8 +2720,8 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
           tool === 'door' ||
           tool === 'window' ||
           tool === 'arch-passage') && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs sm:text-sm px-4 py-2 rounded-full shadow-md pointer-events-none flex items-center gap-2 z-20">
-            <Ruler className="w-4 h-4 text-blue-400" />
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs sm:text-sm px-4 py-2 rounded-2xl sm:rounded-full shadow-md pointer-events-none flex items-center justify-center gap-2 z-20 max-w-[92vw] w-max text-center">
+            <Ruler className="w-4 h-4 text-blue-400 shrink-0" />
             {tool === 'room' && (roomStart ? 'Touchez le coin opposé de la pièce' : 'Touchez le premier coin de la pièce')}
             {tool === 'room-poly' &&
               (polyPoints.length === 0
@@ -2734,7 +2734,7 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
         {/* Floating Polygon Control Banner */}
         {tool === 'room-poly' && polyPoints.length > 0 && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-2xl px-4 py-2 flex items-center gap-3 z-30">
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-2xl px-3 sm:px-4 py-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 z-30 max-w-[95vw] w-max">
             <span className="text-xs text-slate-800 font-medium">
               Pièce polygone : <strong>{polyPoints.length} point{polyPoints.length > 1 ? 's' : ''}</strong>
             </span>
@@ -2762,14 +2762,14 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
         {/* Locked Toast Notification */}
         {showLockedToast && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs sm:text-sm px-4 py-2.5 rounded-2xl shadow-xl z-50 flex items-center gap-2 border border-slate-700 animate-in fade-in">
-            <Lock className="w-4 h-4 text-amber-400" />
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs sm:text-sm px-4 py-2.5 rounded-2xl shadow-xl z-50 flex items-center gap-2 border border-slate-700 animate-in fade-in max-w-[92vw] w-max">
+            <Lock className="w-4 h-4 text-amber-400 shrink-0" />
             <span>{showLockedToast}</span>
           </div>
         )}
 
         {/* Bottom Floating Toolbar (Touch Friendly, with Mur Ext. & Mur Int.) */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl p-1.5 flex items-center gap-1 max-w-[96vw] overflow-x-auto z-20">
+        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl p-1.5 flex items-center gap-1 max-w-[96vw] overflow-x-auto scrollbar-none z-20">
           <ToolButton
             active={tool === 'select'}
             onClick={() => setTool('select')}
@@ -2910,7 +2910,11 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
             </button>
 
             {showCompassPanel && (
-              <div className="absolute bottom-full mb-2 right-0 w-56 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-xl p-3 space-y-2.5 z-30">
+              <div
+                className={`absolute bottom-full mb-2 w-56 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-xl p-3 space-y-2.5 z-30 ${
+                  selection ? 'left-0 md:left-auto md:right-0' : 'right-0'
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <Compass className="w-4 h-4 text-amber-500" />
@@ -3012,9 +3016,9 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
         {/* Properties Inspector (Top Right when something is selected) */}
         {selection && (
-          <div className="absolute top-3 right-3 w-80 max-h-[calc(100%-6rem)] overflow-y-auto bg-white/95 backdrop-blur border border-slate-200 rounded-2xl shadow-xl p-4 z-20">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-slate-900 text-sm">
+          <div className="absolute top-3 right-3 w-[calc(100vw-1.5rem)] sm:w-80 max-w-[calc(100%-1.5rem)] max-h-[55dvh] sm:max-h-[calc(100%-6rem)] overflow-y-auto bg-white/95 backdrop-blur border border-slate-200 rounded-2xl shadow-xl p-4 z-20">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="font-semibold text-slate-900 text-sm truncate min-w-0">
                 {selectedWall &&
                   (selectedWall.wallType === 'interior' || selectedWall.thicknessCm <= 14
                     ? 'Mur intérieur (Cloison)'
@@ -3023,22 +3027,32 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                 {selectedFurniture && selectedFurniture.label}
                 {selectedOpening && 'Ouverture'}
               </h3>
-              <button
-                onClick={deleteSelected}
-                disabled={isSelectionLocked}
-                className={`p-2 rounded-lg transition-colors ${
-                  isSelectionLocked
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    : 'bg-red-50 text-red-600 hover:bg-red-100'
-                }`}
-                title={
-                  isSelectionLocked
-                    ? 'Élément verrouillé (déverrouillez le cadenas en haut pour supprimer)'
-                    : 'Supprimer (Touche Suppr)'
-                }
-              >
-                {isSelectionLocked ? <Lock className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={deleteSelected}
+                  disabled={isSelectionLocked}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isSelectionLocked
+                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                      : 'bg-red-50 text-red-600 hover:bg-red-100'
+                  }`}
+                  title={
+                    isSelectionLocked
+                      ? 'Élément verrouillé (déverrouillez le cadenas en haut pour supprimer)'
+                      : 'Supprimer (Touche Suppr)'
+                  }
+                >
+                  {isSelectionLocked ? <Lock className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelection(null)}
+                  aria-label="Fermer l'inspecteur"
+                  className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {selectedWall && (
@@ -3634,9 +3648,9 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
               selection ? 'left-1/2 lg:left-[calc(50%-10.5rem)]' : 'left-1/2'
             }`}
           >
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="font-semibold text-slate-900">Bibliothèque de Meubles & Équipements</h3>
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 className="font-semibold text-slate-900 text-sm sm:text-base">Bibliothèque de Meubles & Équipements</h3>
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => {
                     setShowFurnitureDrawer(false);
@@ -3687,8 +3701,8 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
         {/* Manage Active Floor Modal (Rename, Reorder, Delete) */}
         {showManageFloorModal && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto p-4 sm:p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-lg text-slate-900">Gérer l’étage</h3>
                 <button
@@ -3703,7 +3717,7 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-slate-600">Nom de l’étage</label>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     value={manageFloorName}
@@ -3714,7 +3728,7 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                         setShowManageFloorModal(false);
                       }
                     }}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-sm"
+                    className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-xl text-sm"
                   />
                   <button
                     type="button"
@@ -3806,8 +3820,8 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
         {/* New Floor Modal */}
         {showNewFloorModal && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto p-5 space-y-4">
               <h3 className="font-semibold text-lg text-slate-900">Ajouter un étage / extérieur</h3>
               <input
                 type="text"

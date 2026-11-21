@@ -372,26 +372,26 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
         {/* Budget Overview & Room Breakdown Card */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
                 <Wallet className="w-5 h-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h3 className="font-bold text-slate-900 text-base">Budget Travaux & Matériaux par Pièce</h3>
                 <p className="text-xs text-slate-500">Estimations et dépenses réelles de la maison</p>
               </div>
             </div>
 
             <div className="flex items-center gap-4 flex-wrap">
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <span className="text-[11px] text-slate-500 uppercase font-semibold block">Total estimé</span>
                 <span className="text-lg font-bold text-slate-900">{globalBudget.total.toFixed(2)} €</span>
               </div>
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <span className="text-[11px] text-slate-500 uppercase font-semibold block">Acheté / Réglé</span>
                 <span className="text-lg font-bold text-emerald-600">{globalBudget.spent.toFixed(2)} €</span>
               </div>
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <span className="text-[11px] text-slate-500 uppercase font-semibold block">Reste à payer</span>
                 <span className="text-lg font-bold text-amber-600">{globalBudget.remaining.toFixed(2)} €</span>
               </div>
@@ -488,7 +488,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                   ))}
                 </datalist>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Priorité</label>
                   <select
@@ -576,7 +576,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
               >
                 {/* Task Header */}
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 flex-1 min-w-[220px]">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
                     <button
                       onClick={() => {
                         const next: TaskStatus =
@@ -818,7 +818,7 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                           handleAddItem(task.id);
                         }
                       }}
-                      className="flex-1 min-w-[180px] px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
+                      className="w-full sm:w-auto sm:flex-1 sm:min-w-[180px] px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
                     />
                     <input
                       type="number"
@@ -898,8 +898,8 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
 
       {/* QR Code Modal */}
       {qrPayload && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 no-print">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 no-print">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-lg text-slate-900">Envoyer vers votre téléphone</h3>
               <button

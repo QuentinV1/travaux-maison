@@ -59,9 +59,9 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-50 to-indigo-50">
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90dvh] flex flex-col overflow-hidden border border-slate-200">
+        <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-2 bg-gradient-to-r from-violet-50 to-indigo-50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-xs">
               <Sparkles className="w-5 h-5" />
@@ -80,7 +80,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="p-5 space-y-4">
+        <form onSubmit={handleSave} className="p-4 sm:p-5 space-y-4 overflow-y-auto">
           <div className="bg-violet-50 border border-violet-200 rounded-2xl p-3.5 text-xs text-violet-900 space-y-1.5">
             <p className="font-semibold">Comment obtenir une clé Gemini gratuite ?</p>
             <p>
@@ -102,14 +102,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               <KeyRound className="w-3.5 h-3.5 text-violet-600" />
               Clé API Google Gemini
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="password"
                 maxLength={200}
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
                 placeholder="AIzaSy..."
-                className="flex-1 px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="flex-1 min-w-0 px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
               />
               <button
                 type="button"

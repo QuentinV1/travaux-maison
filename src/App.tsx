@@ -17,7 +17,7 @@ import {
   AlertTriangle,
   Sparkles,
 } from 'lucide-react';
-import { db, seedInitialDataIfEmpty, uid } from './db';
+import { db, uid } from './db';
 import type {
   AppTab,
   CloudSyncState,
@@ -101,11 +101,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    seedInitialDataIfEmpty()
-      .catch((err) => {
-        console.error('Erreur lors de l’initialisation des données:', err);
-      })
-      .finally(() => setReady(true));
+    setReady(true);
   }, []);
 
   useEffect(() => {
@@ -884,16 +880,16 @@ export function App() {
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Top Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 no-print">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-xs">
+      <header className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 no-print">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 max-w-full">
+          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-xs shrink-0">
             <Home className="w-5 h-5" />
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
             <select
               value={activeHouseId}
               onChange={(e) => setActiveHouseId(e.target.value)}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 min-h-[42px] max-w-[200px] truncate"
+              className="px-2.5 sm:px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 min-h-[42px] max-w-[175px] sm:max-w-[200px] min-w-0 truncate"
             >
               {houses.map((h) => (
                 <option key={h.id} value={h.id}>
@@ -923,7 +919,7 @@ export function App() {
         </div>
 
         {/* Main View Tabs */}
-        <nav className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+        <nav className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 max-w-full overflow-x-auto scrollbar-none">
           <NavTab active={activeTab === 'plan'} onClick={() => setActiveTab('plan')} icon={<Map className="w-4 h-4" />} label="Plan 2D" />
           <NavTab active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<CheckSquare className="w-4 h-4" />} label="Tâches & Courses" />
           <NavTab active={activeTab === 'maintenance'} onClick={() => setActiveTab('maintenance')} icon={<Wrench className="w-4 h-4" />} label="Entretien" />
@@ -932,7 +928,7 @@ export function App() {
         </nav>
 
         {/* Backup, Cloud Sync & AI Settings Actions */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 max-w-full">
           <button
             id="btn-auth-header"
             onClick={() => setShowCloudSyncModal(true)}
@@ -1032,6 +1028,34 @@ export function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
+        {!activeHouse && (
+          <div className="h-full flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+            <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <Home className="w-10 h-10 text-indigo-600 mx-auto mb-3" />
+              <h2 className="text-lg font-bold text-slate-900">Aucune maison enregistrée</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Créez votre première maison ou importez une sauvegarde JSON pour commencer.
+              </p>
+              <div className="mt-5 flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowNewHouseModal(true)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                >
+                  <Plus className="w-4 h-4" /> Créer une maison
+                </button>
+                <button
+                  type="button"
+                  onClick={() => importInputRef.current?.click()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <Upload className="w-4 h-4" /> Importer JSON
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'plan' && activeFloor && (
           <FloorPlanEditor
             floor={activeFloor}
@@ -1162,15 +1186,15 @@ export function App() {
 
       {/* Delete House Confirmation Modal */}
       {showDeleteHouseModal && activeHouse && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-5 sm:p-6 space-y-4">
             <div className="flex items-center gap-3 text-rose-600">
-              <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <h3 className="font-bold text-lg text-slate-900">Supprimer la maison ?</h3>
             </div>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 break-words">
               Êtes-vous sûr de vouloir supprimer définitivement la maison{' '}
               <strong className="text-slate-900 font-semibold">« {activeHouse.name} »</strong> ?
             </p>
@@ -1178,7 +1202,7 @@ export function App() {
               <p className="font-semibold">Cette action est irréversible.</p>
               <p>Tous les étages, murs, ouvertures, pièces, meubles, tâches, listes de courses, entretiens et photos de cette maison seront définitivement effacés.</p>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setShowDeleteHouseModal(false)}
@@ -1200,8 +1224,8 @@ export function App() {
 
       {/* New House Modal */}
       {showNewHouseModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <form onSubmit={handleCreateHouse} className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+          <form onSubmit={handleCreateHouse} className="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto p-5 space-y-4">
             <h3 className="font-bold text-lg text-slate-900">Créer une maison</h3>
             <input
               type="text"
@@ -1218,7 +1242,7 @@ export function App() {
               onChange={(e) => setNewHouseAddress(e.target.value)}
               className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm"
             />
-            <div className="flex justify-end gap-2 pt-1">
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setShowNewHouseModal(false)}
@@ -1308,7 +1332,7 @@ const NavTab: React.FC<{
     onClick={onClick}
     aria-label={label}
     title={label}
-    className={`px-3.5 py-2 rounded-xl text-sm font-medium flex items-center gap-2 min-h-[40px] transition-colors ${
+    className={`px-3.5 py-2 rounded-xl text-sm font-medium flex items-center gap-2 min-h-[40px] shrink-0 transition-colors ${
       active ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
     }`}
   >

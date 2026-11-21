@@ -635,42 +635,43 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
 
         {/* Sub-navigation */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-2xl">
+          <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-2xl max-w-full overflow-x-auto scrollbar-none">
             <button
               type="button"
               onClick={() => setSubTab('equipments')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 subTab === 'equipments'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Wrench className="w-4 h-4" />
+              <Wrench className="w-4 h-4 shrink-0" />
               Équipements ({equipments.length})
             </button>
             <button
               type="button"
               onClick={() => setSubTab('providers')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 subTab === 'providers'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className="w-4 h-4 shrink-0" />
               Prestataires ({providers.length})
             </button>
             <button
               type="button"
               onClick={() => setSubTab('history')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 subTab === 'history'
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <FileText className="w-4 h-4" />
-              Interventions, Justificatifs & Dépenses
+              <FileText className="w-4 h-4 shrink-0" />
+              <span className="sm:hidden">Historique</span>
+              <span className="hidden sm:inline">Interventions, Justificatifs & Dépenses</span>
             </button>
           </div>
 
@@ -1181,10 +1182,10 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
                         <a
                           href={docItem.dataUrl}
                           download={docItem.fileName}
-                          className="text-xs font-medium text-sky-600 hover:underline inline-flex items-center gap-1"
+                          className="text-xs font-medium text-sky-600 hover:underline inline-flex items-center gap-1 min-w-0 max-w-full"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                          Télécharger ({docItem.fileName})
+                          <Download className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Télécharger ({docItem.fileName})</span>
                         </a>
                       </div>
                     );
@@ -1198,10 +1199,10 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
 
       {/* Modal: Equipment */}
       {eqModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
           <form
             onSubmit={handleSaveEquipmentForm}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-4"
           >
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-lg text-slate-900">
@@ -1394,10 +1395,10 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
 
       {/* Modal: Provider */}
       {provModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
           <form
             onSubmit={handleSaveProviderForm}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-4"
           >
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-lg text-slate-900">
@@ -1522,10 +1523,10 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
 
       {/* Modal: Intervention */}
       {intModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
           <form
             onSubmit={handleSaveInterventionForm}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-4"
           >
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-lg text-slate-900">Enregistrer une intervention</h3>
@@ -1577,7 +1578,7 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Date *</label>
                   <input
@@ -1674,10 +1675,10 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
 
       {/* Modal: Document */}
       {docModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
           <form
             onSubmit={handleSaveDocumentForm}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-4"
           >
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-lg text-slate-900">Ajouter un justificatif</h3>
@@ -1724,7 +1725,7 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Date</label>
                   <input
@@ -1817,8 +1818,8 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
 
       {/* Modal: Budget Prévisionnel Bridge (V3) */}
       {budgetModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-lg text-slate-900">
@@ -1838,7 +1839,7 @@ export const MaintenanceModule: React.FC<MaintenanceModuleProps> = ({
               </button>
             </div>
 
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 flex items-center justify-between">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-medium text-emerald-800">
                 Total provisions entretien :
               </span>

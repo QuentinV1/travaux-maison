@@ -94,7 +94,7 @@ export const PhotosGallery: React.FC<PhotosGalleryProps> = ({
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Upload Bar */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
               <Camera className="w-5 h-5 text-slate-700" /> Photos par pièce
             </h2>

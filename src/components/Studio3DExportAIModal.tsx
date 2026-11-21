@@ -365,7 +365,7 @@ export const Studio3DExportAIModal: React.FC<Studio3DExportAIModalProps> = ({
 
         <div className="p-5 overflow-y-auto space-y-4">
           {/* Navigation Tabs */}
-          <div className="grid grid-cols-3 gap-2 bg-slate-100 p-1 rounded-2xl">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 sm:gap-2 bg-slate-100 p-1 rounded-2xl">
             <button
               type="button"
               onClick={() => setTab('ai')}
@@ -620,7 +620,7 @@ export const Studio3DExportAIModal: React.FC<Studio3DExportAIModalProps> = ({
                 </div>
 
                 {(capturedPreview || depthPreview) && (
-                  <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     {capturedPreview && (
                       <img src={capturedPreview} alt="Capture 3D" className="w-full h-28 object-cover rounded-xl border border-slate-200" />
                     )}

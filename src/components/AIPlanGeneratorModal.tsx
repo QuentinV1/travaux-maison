@@ -481,7 +481,7 @@ export const AIPlanGeneratorModal: React.FC<AIPlanGeneratorModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+        <div className="px-4 sm:px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
