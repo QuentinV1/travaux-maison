@@ -133,7 +133,7 @@ async function callGeminiTextOrJson(
   parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }>,
   expectJson = true
 ): Promise<string> {
-  const aiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+  const aiModels = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
   let lastError = 'Erreur inconnue';
 
   try {

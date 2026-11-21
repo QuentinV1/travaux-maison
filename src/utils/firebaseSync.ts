@@ -1,4 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -127,6 +128,15 @@ function tryInitFirebase(): { app: FirebaseApp; auth: Auth; firestore: Firestore
     if (!appInstance) {
       const existing = getApps();
       appInstance = existing.length > 0 ? existing[0] : initializeApp(FIREBASE_CONFIG);
+      const appCheckSiteKey =
+        (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+          ?.VITE_FIREBASE_APPCHECK_SITE_KEY || '6LfRaysuAAAAACpC4hKbGG5Bjpr3Ifr1CyUSlmRe';
+      if (appCheckSiteKey && typeof window !== 'undefined') {
+        initializeAppCheck(appInstance, {
+          provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+          isTokenAutoRefreshEnabled: true,
+        });
+      }
     }
     if (!authInstance) {
       authInstance = getAuth(appInstance);
