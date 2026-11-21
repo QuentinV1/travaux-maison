@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { User } from 'firebase/auth';
 import {
@@ -9,6 +9,7 @@ import {
   Box,
   Wrench,
   Cloud,
+  User as UserIcon,
   Plus,
   Download,
   Upload,
@@ -19,6 +20,7 @@ import {
 import { db, seedInitialDataIfEmpty, uid } from './db';
 import type {
   AppTab,
+  CloudSyncState,
   Floor,
   House,
   HouseSyncConfig,
@@ -37,23 +39,27 @@ import { PhotosGallery } from './components/PhotosGallery';
 import { AISettingsModal } from './components/AISettingsModal';
 import { WebCatalogModal } from './components/WebCatalogModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
-import { hasGeminiKey } from './utils/settings';
+import { hasGeminiKey, loadAppSettings, saveAppSettings } from './utils/settings';
 import { useEscapeKey } from './utils/useEscapeKey';
 import type { ExtractedWebProduct, SuggestedDecoItem } from './utils/aiService';
 import {
-  deleteEquipmentRemote,
-  deleteInterventionRemote,
-  deleteProviderRemote,
-  deleteShoppingRemote,
-  deleteTaskRemote,
-  pushEquipmentRemote,
-  pushInterventionRemote,
-  pushProviderRemote,
-  pushShoppingRemote,
-  pushTaskRemote,
+  cloudState as globalCloudState,
+  ensureRemoteWorkspace,
+  formatFirestoreError,
+  LAST_UID_KEY,
+  reinitialiserEtatCloud,
+  saveUserSettingsToFirestore,
+  stopAllFirestoreListeners,
   subscribeAuth,
+  subscribeCloudState,
   subscribeWorkspaceCollections,
+  SYNC_SUBCOLLECTIONS,
+  syncAllHouseDataToFirestore,
+  updateCloudState,
+  type SyncSubcollection,
 } from './utils/firebaseSync';
+
+export const APP_VERSION = '1.1.0';
 
 const FloorPlan3DViewer = React.lazy(() =>
   import('./components/FloorPlan3DViewer').then((m) => ({ default: m.FloorPlan3DViewer }))
@@ -77,11 +83,22 @@ export function App() {
   const [showWebCatalogFrom3D, setShowWebCatalogFrom3D] = useState(false);
   const [aiReady, setAiReady] = useState(() => hasGeminiKey());
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [cloudSyncState, setCloudSyncState] = useState<CloudSyncState>(() => ({
+    ...globalCloudState,
+  }));
+  const [syncEpoch, setSyncEpoch] = useState(0);
   const [backupError, setBackupError] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
+  const suppressCloudSyncRef = useRef(false);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEscapeKey(showNewHouseModal, () => setShowNewHouseModal(false));
   useEscapeKey(showDeleteHouseModal, () => setShowDeleteHouseModal(false));
+
+  useEffect(() => {
+    return subscribeCloudState((st) => setCloudSyncState(st));
+  }, []);
 
   useEffect(() => {
     seedInitialDataIfEmpty()
@@ -92,7 +109,17 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const unsub = subscribeAuth((user) => setFirebaseUser(user));
+    const unsub = subscribeAuth((user) => {
+      setFirebaseUser(user);
+      if (!user) {
+        if (syncTimerRef.current) {
+          clearTimeout(syncTimerRef.current);
+          syncTimerRef.current = null;
+        }
+        stopAllFirestoreListeners();
+        reinitialiserEtatCloud();
+      }
+    });
     return () => unsub();
   }, []);
 
@@ -182,37 +209,300 @@ export function App() {
     undefined as HouseSyncConfig | undefined
   );
 
+  // Auto-init default syncConfig for activeHouse when user logs in (unless explicitly disabled)
+  useEffect(() => {
+    if (!firebaseUser || !activeHouse) return;
+    let cancelled = false;
+    db.houseSyncConfigs.get(activeHouse.id).then((existing) => {
+      if (cancelled || existing) return;
+      void db.houseSyncConfigs.put({
+        houseId: activeHouse.id,
+        workspaceId: activeHouse.id,
+        enabled: true,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [firebaseUser, activeHouse]);
+
+  const remoteWorkspaceId = firebaseUser && syncConfig?.enabled ? syncConfig.workspaceId : null;
+
+  const pushCurrentHouseToFirestore = useCallback(
+    async (houseId: string, workspaceId: string) => {
+      const [curTasks, curShopping, curEquip, curProv, curInter] = await Promise.all([
+        db.tasks.where('houseId').equals(houseId).toArray(),
+        db.shoppingItems.where('houseId').equals(houseId).toArray(),
+        db.maintenanceEquipments.where('houseId').equals(houseId).toArray(),
+        db.maintenanceProviders.where('houseId').equals(houseId).toArray(),
+        db.maintenanceInterventions.where('houseId').equals(houseId).toArray(),
+      ]);
+      await syncAllHouseDataToFirestore(workspaceId, {
+        tasks: curTasks,
+        shoppingItems: curShopping,
+        equipments: curEquip,
+        providers: curProv,
+        interventions: curInter,
+        settings: loadAppSettings(),
+      });
+      const nowIso = new Date().toISOString();
+      await db.houseSyncConfigs.put({
+        houseId,
+        workspaceId,
+        enabled: true,
+        lastSyncedAt: nowIso,
+      });
+      return nowIso;
+    },
+    []
+  );
+
+  const planifierPushCloud = useCallback(
+    (skipCloud = false) => {
+      if (
+        skipCloud ||
+        suppressCloudSyncRef.current ||
+        !firebaseUser ||
+        !activeHouseId ||
+        !remoteWorkspaceId ||
+        !globalCloudState.initialSyncDone
+      ) {
+        return;
+      }
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+      }
+      updateCloudState({ syncStatus: 'syncing', syncError: null });
+      const targetHouseId = activeHouseId;
+      const targetWorkspaceId = remoteWorkspaceId;
+      syncTimerRef.current = setTimeout(async () => {
+        try {
+          const nowIso = await pushCurrentHouseToFirestore(targetHouseId, targetWorkspaceId);
+          updateCloudState({
+            syncStatus: 'synced',
+            syncError: null,
+            lastSyncedAt: nowIso,
+          });
+        } catch (err) {
+          console.warn('Sync Firestore:', err);
+          updateCloudState({
+            syncStatus: 'error',
+            syncError: formatFirestoreError(err),
+          });
+        }
+      }, 450);
+    },
+    [firebaseUser, activeHouseId, remoteWorkspaceId, pushCurrentHouseToFirestore]
+  );
+
+  const forcerSyncCloud = useCallback(async () => {
+    if (!firebaseUser || !activeHouse) {
+      throw new Error('Non connecté au Cloud.');
+    }
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
+    const workspaceId = syncConfig?.workspaceId || activeHouse.id;
+    updateCloudState({ syncStatus: 'syncing', syncError: null });
+    try {
+      await ensureRemoteWorkspace(workspaceId, activeHouse.name, activeHouse.address);
+      const nowIso = await pushCurrentHouseToFirestore(activeHouse.id, workspaceId);
+      updateCloudState({
+        initialSyncDone: true,
+        syncStatus: 'synced',
+        syncError: null,
+        lastSyncedAt: nowIso,
+      });
+      localStorage.setItem(LAST_UID_KEY, firebaseUser.uid);
+    } catch (err) {
+      const msg = formatFirestoreError(err);
+      updateCloudState({
+        syncStatus: 'error',
+        syncError: msg,
+      });
+      throw new Error(msg);
+    }
+  }, [firebaseUser, activeHouse, syncConfig?.workspaceId, pushCurrentHouseToFirestore]);
+
+  // Algorithme activerSyncCloud (identique à app-charcuterie)
   useEffect(() => {
     if (!firebaseUser || !activeHouseId || !syncConfig?.enabled || !syncConfig.workspaceId) {
+      stopAllFirestoreListeners();
+      reinitialiserEtatCloud();
       return;
     }
+
     const houseId = activeHouseId;
-    const replaceHouseSubset = async <T extends { id: string; houseId: string }>(
-      table: {
-        where: (idx: string) => { equals: (v: string) => { primaryKeys: () => Promise<string[]> } };
-        bulkDelete: (keys: string[]) => Promise<void>;
-        bulkPut: (items: T[]) => Promise<unknown>;
-      },
-      incoming: T[]
-    ) => {
-      const existingKeys = await table.where('houseId').equals(houseId).primaryKeys();
-      const incomingIds = new Set(incoming.map((i) => i.id));
-      const toDelete = existingKeys.filter((k) => !incomingIds.has(k));
-      if (toDelete.length > 0) await table.bulkDelete(toDelete);
-      if (incoming.length > 0) await table.bulkPut(incoming);
+    const workspaceId = syncConfig.workspaceId;
+    const currentUid = firebaseUser.uid;
+    const houseName = activeHouse?.name || 'Ma Maison';
+    const houseAddress = activeHouse?.address;
+
+    let cancelled = false;
+    reinitialiserEtatCloud();
+    updateCloudState({ syncStatus: 'syncing', syncError: null });
+
+    const previousUid = localStorage.getItem(LAST_UID_KEY);
+    const isNewDeviceLogin = !!(currentUid && previousUid !== currentUid);
+    let needsPushAfterInit = false;
+
+    const getTableForSubcol = (subcol: SyncSubcollection) => {
+      switch (subcol) {
+        case 'tasks':
+          return db.tasks;
+        case 'shopping_items':
+          return db.shoppingItems;
+        case 'maintenance_equipments':
+          return db.maintenanceEquipments;
+        case 'maintenance_providers':
+          return db.maintenanceProviders;
+        case 'maintenance_interventions':
+          return db.maintenanceInterventions;
+      }
     };
 
-    const unsub = subscribeWorkspaceCollections(syncConfig.workspaceId, houseId, {
-      onTasks: (items) => void replaceHouseSubset(db.tasks, items),
-      onShoppingItems: (items) => void replaceHouseSubset(db.shoppingItems, items),
-      onEquipments: (items) => void replaceHouseSubset(db.maintenanceEquipments, items),
-      onProviders: (items) => void replaceHouseSubset(db.maintenanceProviders, items),
-      onInterventions: (items) => void replaceHouseSubset(db.maintenanceInterventions, items),
-      onError: (err) => console.error('Erreur synchro Firebase:', err),
-    });
+    const replaceLocalCollection = async <T extends { id: string; houseId: string }>(
+      subcol: SyncSubcollection,
+      items: T[]
+    ) => {
+      const table = getTableForSubcol(subcol) as unknown as {
+        where: (idx: string) => { equals: (v: string) => { primaryKeys: () => Promise<string[]> } };
+        bulkDelete: (keys: string[]) => Promise<void>;
+        bulkPut: (rows: T[]) => Promise<unknown>;
+      };
+      suppressCloudSyncRef.current = true;
+      try {
+        const existingKeys = await table.where('houseId').equals(houseId).primaryKeys();
+        const incomingIds = new Set(items.map((i) => String(i.id)));
+        const toDelete = existingKeys.filter((k) => !incomingIds.has(String(k)));
+        if (toDelete.length > 0) await table.bulkDelete(toDelete);
+        if (items.length > 0) await table.bulkPut(items);
+      } finally {
+        suppressCloudSyncRef.current = false;
+      }
+    };
 
-    return () => unsub();
-  }, [firebaseUser, activeHouseId, syncConfig?.enabled, syncConfig?.workspaceId]);
+    let unsub: (() => void) | null = null;
+
+    (async () => {
+      try {
+        await ensureRemoteWorkspace(workspaceId, houseName, houseAddress);
+      } catch (err) {
+        if (!cancelled) {
+          updateCloudState({
+            syncStatus: 'error',
+            syncError: formatFirestoreError(err),
+          });
+        }
+        return;
+      }
+
+      if (cancelled) return;
+
+      unsub = subscribeWorkspaceCollections(workspaceId, houseId, {
+        onCollectionUpdate: async <T extends { id: string; houseId: string }>(
+          subcol: SyncSubcollection,
+          list: T[],
+          fromCache: boolean
+        ) => {
+          if (cancelled) return;
+
+          // Snapshot fromCache vide -> ignoré (ne jamais prendre un cache vide pour un serveur vide)
+          if (fromCache && list.length === 0) {
+            return;
+          }
+
+          const isFirstServerForCol = !fromCache && !globalCloudState.syncedCols[subcol];
+          const table = getTableForSubcol(subcol) as unknown as {
+            where: (idx: string) => { equals: (v: string) => { toArray: () => Promise<T[]> } };
+          };
+          const localItems = await table.where('houseId').equals(houseId).toArray();
+
+          if (isFirstServerForCol) {
+            globalCloudState.syncedCols[subcol] = true;
+
+            if (list.length === 0 && localItems.length > 0) {
+              // Serveur vide + local non vide -> pousser le local après l'init complète
+              needsPushAfterInit = true;
+            } else if (list.length > 0 && localItems.length > 0 && isNewDeviceLogin) {
+              // Serveur non vide + local non vide + nouvel appareil/compte -> fusion serveur + local absent
+              const serverIds = new Set(list.map((i) => String(i.id)));
+              const localOnly = localItems.filter(
+                (i) => i && i.id && !serverIds.has(String(i.id))
+              );
+              const merged = [...list, ...localOnly];
+              await replaceLocalCollection(subcol, merged);
+              if (localOnly.length > 0) {
+                needsPushAfterInit = true;
+              }
+            } else {
+              // Sinon -> le serveur remplace le local
+              await replaceLocalCollection(subcol, list);
+            }
+
+            if (Object.keys(globalCloudState.syncedCols).length >= SYNC_SUBCOLLECTIONS.length) {
+              const nowIso = new Date().toISOString();
+              updateCloudState({
+                initialSyncDone: true,
+                syncStatus: 'synced',
+                syncError: null,
+                lastSyncedAt: nowIso,
+              });
+              localStorage.setItem(LAST_UID_KEY, currentUid);
+              if (needsPushAfterInit) {
+                needsPushAfterInit = false;
+                planifierPushCloud(false);
+              }
+            } else {
+              updateCloudState({});
+            }
+          } else {
+            await replaceLocalCollection(subcol, list);
+          }
+        },
+        onSettingsUpdate: (remoteSettings) => {
+          if (cancelled) return;
+          suppressCloudSyncRef.current = true;
+          try {
+            const current = loadAppSettings();
+            if (
+              typeof remoteSettings.comfyUiUrl === 'string' &&
+              remoteSettings.comfyUiUrl !== current.comfyUiUrl
+            ) {
+              saveAppSettings({
+                ...current,
+                comfyUiUrl: remoteSettings.comfyUiUrl,
+              });
+            }
+          } finally {
+            suppressCloudSyncRef.current = false;
+          }
+        },
+        onError: (err) => {
+          if (cancelled) return;
+          updateCloudState({
+            syncStatus: 'error',
+            syncError: formatFirestoreError(err),
+          });
+        },
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unsub) unsub();
+    };
+  }, [
+    firebaseUser,
+    activeHouseId,
+    activeHouse?.name,
+    activeHouse?.address,
+    syncConfig?.enabled,
+    syncConfig?.workspaceId,
+    syncEpoch,
+    planifierPushCloud,
+  ]);
 
   const handleCreateHouse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,32 +751,12 @@ export function App() {
       if (data.houses?.[0]?.id) {
         setActiveHouseId(data.houses[0].id);
       }
+      planifierPushCloud(false);
     } catch (err) {
       console.error('Erreur restauration sauvegarde:', err);
       setBackupError(
         'Impossible de restaurer ce fichier : veuillez sélectionner une sauvegarde JSON valide exportée depuis MaMaison.'
       );
-    }
-  };
-
-  const remoteWorkspaceId = firebaseUser && syncConfig?.enabled ? syncConfig.workspaceId : null;
-
-  const handlePushLocalToRemote = async (workspaceId: string) => {
-    if (!firebaseUser) return;
-    await Promise.all([
-      ...tasks.map((t) => pushTaskRemote(workspaceId, t)),
-      ...shoppingItems.map((s) => pushShoppingRemote(workspaceId, s)),
-      ...maintenanceEquipments.map((e) => pushEquipmentRemote(workspaceId, e)),
-      ...maintenanceProviders.map((p) => pushProviderRemote(workspaceId, p)),
-      ...maintenanceInterventions.map((i) => pushInterventionRemote(workspaceId, i)),
-    ]);
-    if (activeHouse) {
-      await db.houseSyncConfigs.put({
-        houseId: activeHouse.id,
-        workspaceId,
-        enabled: true,
-        lastSyncedAt: new Date().toISOString(),
-      });
     }
   };
 
@@ -516,6 +786,7 @@ export function App() {
       checked: false,
       estimatedPrice: product.price,
     });
+    planifierPushCloud(false);
   };
 
   const handleAddWebProductToActiveFloor = async (
@@ -599,6 +870,17 @@ export function App() {
     );
   }
 
+  const syncedItemsCount =
+    tasks.length +
+    shoppingItems.length +
+    maintenanceEquipments.length +
+    maintenanceProviders.length +
+    maintenanceInterventions.length;
+
+  const authHeaderLabel = firebaseUser
+    ? (firebaseUser.email || firebaseUser.displayName || 'Cloud').split('@')[0]
+    : 'Connexion';
+
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Top Navigation Bar */}
@@ -619,6 +901,9 @@ export function App() {
                 </option>
               ))}
             </select>
+            <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500">
+              v{APP_VERSION}
+            </span>
             <button
               onClick={() => setShowNewHouseModal(true)}
               className="p-2.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 min-h-[42px] min-w-[42px] flex items-center justify-center transition-colors"
@@ -649,18 +934,37 @@ export function App() {
         {/* Backup, Cloud Sync & AI Settings Actions */}
         <div className="flex items-center gap-1.5">
           <button
+            id="btn-auth-header"
             onClick={() => setShowCloudSyncModal(true)}
             className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[40px] transition-colors ${
-              remoteWorkspaceId
+              firebaseUser
                 ? 'bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100'
                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
             }`}
-            title="Synchronisation Foyer Firebase (partage à 2)"
+            title={
+              firebaseUser
+                ? `Connecté : ${firebaseUser.email || firebaseUser.uid}`
+                : 'Se connecter au Cloud'
+            }
           >
-            <Cloud className="w-4 h-4 text-sky-600" />
-            <span className="hidden md:inline">Foyer</span>
+            {firebaseUser ? (
+              <UserIcon className="w-4 h-4 text-sky-600" />
+            ) : (
+              <Cloud className="w-4 h-4 text-sky-600" />
+            )}
+            <span className="max-w-[110px] truncate">{authHeaderLabel}</span>
             <span
-              className={`w-2 h-2 rounded-full ${remoteWorkspaceId ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              className={`w-2 h-2 rounded-full ${
+                !firebaseUser
+                  ? 'bg-slate-300'
+                  : cloudSyncState.syncStatus === 'error'
+                    ? 'bg-rose-500'
+                    : cloudSyncState.syncStatus === 'syncing'
+                      ? 'bg-amber-500 animate-pulse'
+                      : remoteWorkspaceId
+                        ? 'bg-emerald-500'
+                        : 'bg-slate-400'
+              }`}
             />
           </button>
           <button
@@ -751,37 +1055,33 @@ export function App() {
             shoppingItems={shoppingItems}
             onAddTask={async (t) => {
               await db.tasks.add(t);
-              if (remoteWorkspaceId) await pushTaskRemote(remoteWorkspaceId, t);
+              planifierPushCloud(false);
             }}
             onUpdateTask={async (t) => {
               await db.tasks.put(t);
-              if (remoteWorkspaceId) await pushTaskRemote(remoteWorkspaceId, t);
+              planifierPushCloud(false);
             }}
             onDeleteTask={async (id) => {
-              const linked = await db.shoppingItems.where('taskId').equals(id).toArray();
               await db.tasks.delete(id);
               await db.shoppingItems.where('taskId').equals(id).delete();
-              if (remoteWorkspaceId) {
-                await deleteTaskRemote(remoteWorkspaceId, id);
-                await Promise.all(linked.map((s) => deleteShoppingRemote(remoteWorkspaceId, s.id)));
-              }
+              planifierPushCloud(false);
             }}
             onAddShoppingItem={async (s) => {
               await db.shoppingItems.add(s);
-              if (remoteWorkspaceId) await pushShoppingRemote(remoteWorkspaceId, s);
+              planifierPushCloud(false);
             }}
             onUpdateShoppingItem={async (s) => {
               await db.shoppingItems.put(s);
-              if (remoteWorkspaceId) await pushShoppingRemote(remoteWorkspaceId, s);
+              planifierPushCloud(false);
             }}
             onToggleShoppingItem={async (s) => {
               const updated = { ...s, checked: !s.checked };
               await db.shoppingItems.put(updated);
-              if (remoteWorkspaceId) await pushShoppingRemote(remoteWorkspaceId, updated);
+              planifierPushCloud(false);
             }}
             onDeleteShoppingItem={async (id) => {
               await db.shoppingItems.delete(id);
-              if (remoteWorkspaceId) await deleteShoppingRemote(remoteWorkspaceId, id);
+              planifierPushCloud(false);
             }}
           />
         )}
@@ -795,27 +1095,27 @@ export function App() {
             documents={maintenanceDocuments}
             onSaveEquipment={async (eq) => {
               await db.maintenanceEquipments.put(eq);
-              if (remoteWorkspaceId) await pushEquipmentRemote(remoteWorkspaceId, eq);
+              planifierPushCloud(false);
             }}
             onDeleteEquipment={async (id) => {
               await db.maintenanceEquipments.delete(id);
-              if (remoteWorkspaceId) await deleteEquipmentRemote(remoteWorkspaceId, id);
+              planifierPushCloud(false);
             }}
             onSaveProvider={async (prov) => {
               await db.maintenanceProviders.put(prov);
-              if (remoteWorkspaceId) await pushProviderRemote(remoteWorkspaceId, prov);
+              planifierPushCloud(false);
             }}
             onDeleteProvider={async (id) => {
               await db.maintenanceProviders.delete(id);
-              if (remoteWorkspaceId) await deleteProviderRemote(remoteWorkspaceId, id);
+              planifierPushCloud(false);
             }}
             onSaveIntervention={async (inter) => {
               await db.maintenanceInterventions.put(inter);
-              if (remoteWorkspaceId) await pushInterventionRemote(remoteWorkspaceId, inter);
+              planifierPushCloud(false);
             }}
             onDeleteIntervention={async (id) => {
               await db.maintenanceInterventions.delete(id);
-              if (remoteWorkspaceId) await deleteInterventionRemote(remoteWorkspaceId, id);
+              planifierPushCloud(false);
             }}
             onAddDocument={(docItem) => db.maintenanceDocuments.put(docItem).then(() => undefined)}
             onDeleteDocument={(id) => db.maintenanceDocuments.delete(id)}
@@ -940,7 +1240,12 @@ export function App() {
       <AISettingsModal
         isOpen={showAISettingsModal}
         onClose={() => setShowAISettingsModal(false)}
-        onSaved={() => setAiReady(hasGeminiKey())}
+        onSaved={() => {
+          setAiReady(hasGeminiKey());
+          if (firebaseUser) {
+            void saveUserSettingsToFirestore(loadAppSettings()).catch(() => {});
+          }
+        }}
       />
 
       {/* Cloud Sync Modal (Firebase quentin-apps-hub) */}
@@ -950,6 +1255,8 @@ export function App() {
         user={firebaseUser}
         house={activeHouse}
         syncConfig={syncConfig ?? null}
+        cloudState={cloudSyncState}
+        syncedItemsCount={syncedItemsCount}
         onEnableSync={async (workspaceId) => {
           if (!activeHouse) return;
           await db.houseSyncConfigs.put({
@@ -958,12 +1265,27 @@ export function App() {
             enabled: true,
             lastSyncedAt: new Date().toISOString(),
           });
+          setSyncEpoch((n) => n + 1);
         }}
         onDisableSync={async () => {
           if (!activeHouse) return;
-          await db.houseSyncConfigs.delete(activeHouse.id);
+          if (syncTimerRef.current) {
+            clearTimeout(syncTimerRef.current);
+            syncTimerRef.current = null;
+          }
+          stopAllFirestoreListeners();
+          reinitialiserEtatCloud();
+          await db.houseSyncConfigs.put({
+            houseId: activeHouse.id,
+            workspaceId: syncConfig?.workspaceId || activeHouse.id,
+            enabled: false,
+          });
         }}
-        onPushLocalToRemote={handlePushLocalToRemote}
+        onForceSync={forcerSyncCloud}
+        onUserVerified={async (refreshedUser) => {
+          setFirebaseUser(refreshedUser);
+          setSyncEpoch((n) => n + 1);
+        }}
       />
 
       {/* Web Catalog Modal launched directly from 3D View */}

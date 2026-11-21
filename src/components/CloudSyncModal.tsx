@@ -12,13 +12,17 @@ import {
   Users,
   X,
   AlertCircle,
+  User as UserIcon,
 } from 'lucide-react';
-import type { House, HouseSyncConfig } from '../types';
+import type { CloudSyncState, House, HouseSyncConfig } from '../types';
 import { useEscapeKey } from '../utils/useEscapeKey';
 import { copyTextToClipboard } from '../utils/clipboard';
 import {
   ensureRemoteWorkspace,
+  formatFirestoreError,
   listMyRemoteWorkspaces,
+  registerWithEmail,
+  reloadFirebaseUser,
   resendVerificationEmail,
   resetFirebasePassword,
   signInWithEmail,
@@ -34,9 +38,12 @@ interface CloudSyncModalProps {
   user: User | null;
   house: House | null;
   syncConfig: HouseSyncConfig | null;
+  cloudState: CloudSyncState;
+  syncedItemsCount: number;
   onEnableSync: (workspaceId: string) => Promise<void>;
   onDisableSync: () => Promise<void>;
-  onPushLocalToRemote: (workspaceId: string) => Promise<void>;
+  onForceSync: () => Promise<void>;
+  onUserVerified: (user: User) => Promise<void>;
 }
 
 export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
@@ -45,9 +52,12 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   user,
   house,
   syncConfig,
+  cloudState,
+  syncedItemsCount,
   onEnableSync,
   onDisableSync,
-  onPushLocalToRemote,
+  onForceSync,
+  onUserVerified,
 }) => {
   useEscapeKey(isOpen, onClose);
 
@@ -78,7 +88,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, user]);
+  }, [isOpen, user, syncConfig?.workspaceId]);
 
   if (!isOpen) return null;
 
@@ -86,30 +96,42 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     ? workspaces.find((w) => w.id === syncConfig.workspaceId)
     : undefined;
 
-  const handleSignIn = async () => {
+  const handleSignInGoogle = async () => {
     setBusy(true);
     setError(null);
     setInfo(null);
     try {
       await signInWithGoogle();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Connexion Google impossible.');
+      setError(formatFirestoreError(err, 'Connexion Google impossible.'));
     } finally {
       setBusy(false);
     }
   };
 
-  const handleEmailSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim() || !password) return;
+  const handleEmailAuth = async (isRegister: boolean) => {
+    if (!email.trim() || !password) {
+      setError('Veuillez renseigner votre adresse e-mail et votre mot de passe.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setInfo(null);
     try {
-      await signInWithEmail(email, password);
+      if (isRegister) {
+        await registerWithEmail(email, password);
+        setInfo('Compte créé ! Un e-mail de vérification vient de vous être envoyé.');
+      } else {
+        await signInWithEmail(email, password);
+      }
       setPassword('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Connexion par e-mail impossible.');
+      setError(
+        formatFirestoreError(
+          err,
+          isRegister ? 'Impossible de créer le compte.' : 'Connexion par e-mail impossible.'
+        )
+      );
     } finally {
       setBusy(false);
     }
@@ -127,7 +149,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
       await resetFirebasePassword(email);
       setInfo('E-mail de réinitialisation envoyé (vérifiez vos spams).');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Impossible d’envoyer l’e-mail de réinitialisation.');
+      setError(formatFirestoreError(err, 'Impossible d’envoyer l’e-mail de réinitialisation.'));
     } finally {
       setBusy(false);
     }
@@ -138,10 +160,66 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     setError(null);
     setInfo(null);
     try {
-      await resendVerificationEmail();
-      setInfo('E-mail de vérification envoyé. Rechargez la page après validation.');
+      const sent = await resendVerificationEmail();
+      setInfo(
+        sent
+          ? 'E-mail de vérification envoyé ! Vérifiez votre boîte de réception (et les spams), puis cliquez sur « J’ai vérifié ».'
+          : 'Votre adresse e-mail est déjà vérifiée.'
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Impossible d’envoyer l’e-mail de vérification.');
+      setError(formatFirestoreError(err, 'Impossible d’envoyer l’e-mail de vérification.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCheckVerified = async () => {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const refreshed = await reloadFirebaseUser();
+      if (refreshed?.emailVerified) {
+        await onUserVerified(refreshed);
+        setInfo('Adresse e-mail vérifiée ! Synchronisation Cloud activée.');
+      } else {
+        setError('Adresse toujours non vérifiée. Cliquez d’abord sur le lien reçu par e-mail.');
+      }
+    } catch (err) {
+      setError(formatFirestoreError(err, 'Erreur lors de la vérification du statut e-mail.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (!window.confirm('Se déconnecter du compte Cloud ?')) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await signOutFirebase();
+      onClose();
+    } catch (err) {
+      setError(formatFirestoreError(err, 'Impossible de se déconnecter.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleForceSync = async () => {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await onForceSync();
+      if (user) {
+        const list = await listMyRemoteWorkspaces(user.uid);
+        setWorkspaces(list);
+      }
+      setInfo('Synchronisation effectuée avec succès.');
+    } catch (err) {
+      setError(formatFirestoreError(err, 'Impossible de synchroniser maintenant.'));
     } finally {
       setBusy(false);
     }
@@ -155,16 +233,11 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     try {
       const ws = await ensureRemoteWorkspace(house.id, house.name, house.address);
       await onEnableSync(ws.id);
-      await onPushLocalToRemote(ws.id);
       const list = await listMyRemoteWorkspaces(user.uid);
       setWorkspaces(list);
-      setInfo('Synchronisation activée et données locales envoyées.');
+      setInfo('Synchronisation activée pour cette maison.');
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Impossible d’activer la synchronisation Firebase.'
-      );
+      setError(formatFirestoreError(err, 'Impossible d’activer la synchronisation Firebase.'));
     } finally {
       setBusy(false);
     }
@@ -179,7 +252,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
       await onEnableSync(workspaceId);
       setInfo('Maison connectée à l’espace partagé.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Impossible de rejoindre cet espace.');
+      setError(formatFirestoreError(err, 'Impossible de rejoindre cet espace.'));
     } finally {
       setBusy(false);
     }
@@ -203,9 +276,10 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
       setInfo('Membre ajouté à l’espace partagé.');
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Impossible d’ajouter ce membre (seul le propriétaire peut modifier les membres).'
+        formatFirestoreError(
+          err,
+          'Impossible d’ajouter ce membre (seul le propriétaire peut modifier les membres).'
+        )
       );
     } finally {
       setBusy(false);
@@ -225,7 +299,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
         prev.map((w) => (w.id === activeWorkspace.id ? { ...w, memberUids: updated } : w))
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Suppression impossible.');
+      setError(formatFirestoreError(err, 'Suppression impossible.'));
     } finally {
       setBusy(false);
     }
@@ -240,6 +314,23 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     }
   };
 
+  const renderSyncStatusText = () => {
+    if (cloudState.syncStatus === 'syncing') {
+      return <span className="text-amber-600 font-semibold">Synchronisation en cours…</span>;
+    }
+    if (cloudState.syncStatus === 'error') {
+      return <span className="text-rose-600 font-semibold">Erreur de synchronisation</span>;
+    }
+    if (cloudState.initialSyncDone || cloudState.syncStatus === 'synced') {
+      return (
+        <span className="text-emerald-700 font-semibold">
+          Synchronisé ({syncedItemsCount} élément{syncedItemsCount > 1 ? 's' : ''})
+        </span>
+      );
+    }
+    return <span className="text-slate-500">Connexion au Cloud…</span>;
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-5">
@@ -249,8 +340,8 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
               <Cloud className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold text-lg text-slate-900">Synchronisation Foyer (Firebase)</h2>
-              <p className="text-xs text-slate-500">Hub quentin-apps-hub · Partage à 2 en temps réel</p>
+              <h2 className="font-bold text-lg text-slate-900">Compte Cloud & Synchronisation</h2>
+              <p className="text-xs text-slate-500">Hub quentin-apps-hub · Sauvegarde & partage Foyer</p>
             </div>
           </div>
           <button
@@ -265,17 +356,16 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
 
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 leading-relaxed">
           <strong className="text-slate-800">Données synchronisées :</strong> Tâches chantier, Liste de
-          courses, Équipements d’entretien, Prestataires et Interventions.
+          courses, Équipements d’entretien, Prestataires, Interventions et Préférences.
           <br />
           <strong className="text-slate-800">Données locales uniquement :</strong> Plans 2D/3D, Photos
-          WebP, Justificatifs et modèles .GLB (pour respecter la limite Firestore et préserver la
-          rapidité).
+          WebP, Justificatifs et modèles .GLB (limite 1 Mo/doc Firestore).
         </div>
 
-        {error && (
+        {(error || cloudState.syncError) && (
           <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-700 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
+            <span>{error || cloudState.syncError}</span>
           </div>
         )}
 
@@ -287,29 +377,18 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
 
         {!user ? (
           <div className="border border-slate-200 rounded-2xl p-5 space-y-4">
-            <p className="text-sm text-slate-600 text-center">
-              Connectez-vous avec votre compte autorisé sur <strong>quentin-apps-hub</strong> pour
-              activer la synchronisation temps réel.
+            <p className="text-sm text-slate-600">
+              Connectez-vous pour synchroniser vos tâches, courses et entretiens entre vos appareils
+              et partager votre maison.
             </p>
-            <div className="text-center">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={handleSignIn}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
-              >
-                <LogIn className="w-4 h-4" />
-                Se connecter avec Google
-              </button>
-            </div>
 
-            <div className="relative flex items-center py-1">
-              <div className="grow border-t border-slate-200" />
-              <span className="shrink mx-3 text-xs text-slate-400">ou par e-mail</span>
-              <div className="grow border-t border-slate-200" />
-            </div>
-
-            <form onSubmit={handleEmailSignIn} className="space-y-3">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleEmailAuth(false);
+              }}
+              className="space-y-3"
+            >
               <div>
                 <label htmlFor="cloud-sync-email" className="block text-xs font-medium text-slate-700 mb-1">
                   Adresse e-mail
@@ -320,14 +399,14 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="nom@exemple.fr"
+                  placeholder="prenom@exemple.fr"
                   autoComplete="email"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
               <div>
                 <label htmlFor="cloud-sync-password" className="block text-xs font-medium text-slate-700 mb-1">
-                  Mot de passe
+                  Mot de passe (6 car. min)
                 </label>
                 <input
                   id="cloud-sync-password"
@@ -340,7 +419,28 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
-              <div className="flex items-center justify-between gap-2 pt-1">
+
+              <div className="flex flex-col gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 disabled:opacity-50"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Se connecter
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleEmailAuth(true)}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Créer un compte
+                </button>
+              </div>
+
+              <div className="flex justify-end">
                 <button
                   type="button"
                   disabled={busy}
@@ -349,68 +449,128 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 >
                   Mot de passe oublié ?
                 </button>
-                <button
-                  type="submit"
-                  disabled={busy || !email.trim() || !password}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 disabled:opacity-50"
-                >
-                  <LogIn className="w-4 h-4" />
-                  Se connecter
-                </button>
               </div>
             </form>
+
+            <div className="relative flex items-center py-1">
+              <div className="grow border-t border-slate-200" />
+              <span className="shrink mx-3 text-xs text-slate-400">ou</span>
+              <div className="grow border-t border-slate-200" />
+            </div>
+
+            <button
+              type="button"
+              disabled={busy}
+              onClick={handleSignInGoogle}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
+                />
+              </svg>
+              Continuer avec Google
+            </button>
           </div>
         ) : (
           <div className="space-y-4">
-            {!user.emailVerified && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 space-y-2">
-                <p>
-                  <strong>E-mail non vérifié :</strong> les règles Firestore de{' '}
-                  <code>quentin-apps-hub</code> exigent une adresse vérifiée (<code>email_verified</code>).
-                </p>
+            {/* Connected User & Sync Status */}
+            <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3.5 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Connecté en tant que
+                  </div>
+                  <div className="text-sm font-bold text-slate-900 break-all flex items-center gap-1.5 mt-0.5">
+                    <UserIcon className="w-4 h-4 text-sky-600 shrink-0" />
+                    <span>{user.email || user.displayName || user.uid}</span>
+                  </div>
+                  <div className="text-xs mt-1.5">{renderSyncStatusText()}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 pt-1 border-t border-slate-200/80">
+                <code className="text-[11px] bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-700 truncate max-w-[240px]">
+                  UID: {user.uid}
+                </code>
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={handleResendVerification}
-                  className="px-2.5 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-50"
+                  onClick={handleCopyUid}
+                  className="text-xs text-sky-600 hover:text-sky-800 inline-flex items-center gap-1"
+                  title="Copier mon UID pour le partager"
                 >
-                  Renvoyer l’e-mail de vérification
+                  {copiedUid ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedUid ? 'Copié' : 'Copier UID'}
                 </button>
               </div>
-            )}
-            {/* Connected User */}
-            <div className="border border-slate-200 rounded-xl p-3.5 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-900 truncate">
-                  {user.displayName || user.email}
-                </div>
-                <div className="text-xs text-slate-500 truncate">{user.email}</div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <code className="text-[11px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 truncate max-w-[210px]">
-                    UID: {user.uid}
-                  </code>
+            </div>
+
+            {/* Unverified Email Box */}
+            {!user.emailVerified && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 text-xs text-amber-900 space-y-2.5">
+                <div className="font-bold text-amber-800">Adresse e-mail non vérifiée</div>
+                <p className="text-amber-700 leading-relaxed">
+                  Les règles Firestore de <code>quentin-apps-hub</code> exigent une adresse e-mail
+                  vérifiée. Vérifiez votre boîte mail (ou vos spams), cliquez sur le lien reçu, puis
+                  sur « J’ai vérifié ».
+                </p>
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={handleCopyUid}
-                    className="text-xs text-sky-600 hover:text-sky-800 inline-flex items-center gap-1"
-                    title="Copier mon UID pour le partager"
+                    disabled={busy}
+                    onClick={handleResendVerification}
+                    className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 font-medium hover:bg-amber-100 disabled:opacity-50"
                   >
-                    {copiedUid ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedUid ? 'Copié' : 'Copier'}
+                    Renvoyer l’e-mail de vérification
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={handleCheckVerified}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    J’ai vérifié
                   </button>
                 </div>
               </div>
+            )}
+
+            {/* Primary Cloud Actions (Synchroniser maintenant / Se déconnecter) */}
+            <div className="flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
-                onClick={() => signOutFirebase()}
-                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1.5 shrink-0"
+                disabled={busy}
+                onClick={handleForceSync}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700 inline-flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${busy || cloudState.syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                Synchroniser maintenant
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleSignOut}
+                className="px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 hover:bg-rose-100 inline-flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-50"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                Déconnexion
+                Se déconnecter
               </button>
             </div>
 
-            {/* Active House Sync */}
+            {/* Active House Sync & Sharing */}
             {house && (
               <div className="border border-slate-200 rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -433,24 +593,18 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 </div>
 
                 {syncConfig?.enabled ? (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => onPushLocalToRemote(syncConfig.workspaceId)}
-                      className="px-3 py-2 rounded-xl bg-sky-600 text-white text-xs font-medium hover:bg-sky-700 inline-flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      Envoyer les données locales
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px] text-slate-500 font-mono truncate">
+                      Espace : {syncConfig.workspaceId}
+                    </span>
                     <button
                       type="button"
                       disabled={busy}
                       onClick={onDisableSync}
-                      className="px-3 py-2 rounded-xl border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-100 inline-flex items-center gap-1.5 disabled:opacity-50"
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-100 inline-flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <CloudOff className="w-3.5 h-3.5" />
-                      Désactiver la synchro
+                      Suspendre pour cette maison
                     </button>
                   </div>
                 ) : (
@@ -461,7 +615,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                     className="w-full px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 inline-flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <Cloud className="w-4 h-4" />
-                    Activer le partage cloud pour cette maison
+                    Activer la synchronisation pour cette maison
                   </button>
                 )}
               </div>

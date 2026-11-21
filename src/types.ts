@@ -353,3 +353,13 @@ export interface HouseSyncConfig {
   enabled: boolean;
   lastSyncedAt?: string;
 }
+
+export type CloudSyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
+
+export interface CloudSyncState {
+  initialSyncDone: boolean;
+  syncedCols: Record<string, boolean>;
+  syncStatus: CloudSyncStatus;
+  syncError: string | null;
+  lastSyncedAt: string | null;
+}

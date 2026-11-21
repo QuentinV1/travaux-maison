@@ -1,5 +1,6 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
+  createUserWithEmailAndPassword,
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -26,10 +27,14 @@ import {
   setDoc,
   Timestamp,
   where,
+  writeBatch,
+  type DocumentReference,
   type Firestore,
   type Unsubscribe,
 } from 'firebase/firestore';
 import type {
+  AppSettings,
+  CloudSyncState,
   MaintenanceEquipment,
   MaintenanceIntervention,
   ServiceProvider,
@@ -47,32 +52,110 @@ export const FIREBASE_CONFIG = {
 };
 
 const WORKSPACE_COLLECTION = 'travaux_houses';
+export const LAST_UID_KEY = 'travaux_maison_last_uid';
+const BATCH_CHUNK_SIZE = 450;
 
 let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let dbInstance: Firestore | null = null;
+let activeListeners: Unsubscribe[] = [];
+
+export const cloudState: CloudSyncState = {
+  initialSyncDone: false,
+  syncedCols: {},
+  syncStatus: 'idle',
+  syncError: null,
+  lastSyncedAt: null,
+};
+
+const cloudStateSubscribers = new Set<(state: CloudSyncState) => void>();
+
+function notifyCloudState(): void {
+  const snapshot: CloudSyncState = {
+    ...cloudState,
+    syncedCols: { ...cloudState.syncedCols },
+  };
+  cloudStateSubscribers.forEach((cb) => cb(snapshot));
+}
+
+export function subscribeCloudState(cb: (state: CloudSyncState) => void): () => void {
+  cloudStateSubscribers.add(cb);
+  cb({ ...cloudState, syncedCols: { ...cloudState.syncedCols } });
+  return () => {
+    cloudStateSubscribers.delete(cb);
+  };
+}
+
+export function updateCloudState(patch: Partial<CloudSyncState>): void {
+  Object.assign(cloudState, patch);
+  notifyCloudState();
+}
+
+export function reinitialiserEtatCloud(): void {
+  cloudState.initialSyncDone = false;
+  cloudState.syncedCols = {};
+  cloudState.syncStatus = 'idle';
+  cloudState.syncError = null;
+  cloudState.lastSyncedAt = null;
+  notifyCloudState();
+}
+
+export function formatFirestoreError(err: unknown, fallback = 'Erreur de synchronisation Firestore'): string {
+  const code = (err as { code?: string })?.code;
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  if (
+    code === 'permission-denied' ||
+    msg.toLowerCase().includes('missing or insufficient permissions') ||
+    msg.toLowerCase().includes('permission-denied')
+  ) {
+    return 'Accès Firestore refusé (vérifiez que votre e-mail est bien vérifié et autorisé).';
+  }
+  return msg || fallback;
+}
+
+export function cleanForFirestore<T>(obj: T): T {
+  return JSON.parse(
+    JSON.stringify(obj, (_k, v) => (v === undefined ? null : v))
+  ) as T;
+}
+
+function tryInitFirebase(): { app: FirebaseApp; auth: Auth; firestore: Firestore } | null {
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+    return null;
+  }
+  try {
+    if (!appInstance) {
+      const existing = getApps();
+      appInstance = existing.length > 0 ? existing[0] : initializeApp(FIREBASE_CONFIG);
+    }
+    if (!authInstance) {
+      authInstance = getAuth(appInstance);
+    }
+    if (!dbInstance) {
+      try {
+        dbInstance = initializeFirestore(appInstance, {
+          localCache: persistentLocalCache({
+            tabManager: persistentMultipleTabManager(),
+          }),
+          ignoreUndefinedProperties: true,
+        });
+      } catch {
+        dbInstance = getFirestore(appInstance);
+      }
+    }
+    return { app: appInstance, auth: authInstance, firestore: dbInstance };
+  } catch (err) {
+    console.warn('Firebase SDK indisponible (mode hors-ligne local):', err);
+    return null;
+  }
+}
 
 function ensureFirebase(): { app: FirebaseApp; auth: Auth; firestore: Firestore } {
-  if (!appInstance) {
-    const existing = getApps();
-    appInstance = existing.length > 0 ? existing[0] : initializeApp(FIREBASE_CONFIG);
+  const inst = tryInitFirebase();
+  if (!inst) {
+    throw new Error('Firebase indisponible hors-ligne.');
   }
-  if (!authInstance) {
-    authInstance = getAuth(appInstance);
-  }
-  if (!dbInstance) {
-    try {
-      dbInstance = initializeFirestore(appInstance, {
-        localCache: persistentLocalCache({
-          tabManager: persistentMultipleTabManager(),
-        }),
-        ignoreUndefinedProperties: true,
-      });
-    } catch {
-      dbInstance = getFirestore(appInstance);
-    }
-  }
-  return { app: appInstance, auth: authInstance, firestore: dbInstance };
+  return inst;
 }
 
 export function getFirebaseApp(): FirebaseApp {
@@ -84,8 +167,12 @@ export function getFirebaseAuth(): Auth {
 }
 
 export function subscribeAuth(callback: (user: User | null) => void): Unsubscribe {
-  const { auth } = ensureFirebase();
-  return onAuthStateChanged(auth, callback);
+  const inst = tryInitFirebase();
+  if (!inst) {
+    callback(null);
+    return () => {};
+  }
+  return onAuthStateChanged(inst.auth, callback);
 }
 
 export async function signInWithGoogle(): Promise<User> {
@@ -102,20 +189,53 @@ export async function signInWithEmail(email: string, password: string): Promise<
   return cred.user;
 }
 
+export async function registerWithEmail(email: string, password: string): Promise<User> {
+  const { auth } = ensureFirebase();
+  const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  if (cred.user) {
+    sendEmailVerification(cred.user).catch(() => {});
+  }
+  return cred.user;
+}
+
 export async function resetFirebasePassword(email: string): Promise<void> {
   const { auth } = ensureFirebase();
   await sendPasswordResetEmail(auth, email.trim());
 }
 
-export async function resendVerificationEmail(): Promise<void> {
+export async function resendVerificationEmail(): Promise<boolean> {
   const { auth } = ensureFirebase();
   if (!auth.currentUser) throw new Error('Aucun utilisateur connecté.');
+  if (auth.currentUser.emailVerified) return false;
   await sendEmailVerification(auth.currentUser);
+  return true;
+}
+
+export async function reloadFirebaseUser(): Promise<User | null> {
+  const inst = tryInitFirebase();
+  if (!inst || !inst.auth.currentUser) return null;
+  await inst.auth.currentUser.reload();
+  await inst.auth.currentUser.getIdToken(true);
+  return inst.auth.currentUser;
+}
+
+export function stopAllFirestoreListeners(): void {
+  activeListeners.forEach((unsub) => {
+    try {
+      unsub();
+    } catch {
+      // ignore
+    }
+  });
+  activeListeners = [];
 }
 
 export async function signOutFirebase(): Promise<void> {
-  const { auth } = ensureFirebase();
-  await signOut(auth);
+  stopAllFirestoreListeners();
+  reinitialiserEtatCloud();
+  const inst = tryInitFirebase();
+  if (!inst) return;
+  await signOut(inst.auth);
 }
 
 export interface RemoteWorkspaceSummary {
@@ -221,12 +341,242 @@ export async function updateWorkspaceMembers(
   return cleanMembers;
 }
 
-type SyncSubcollection =
+export type SyncSubcollection =
   | 'tasks'
   | 'shopping_items'
   | 'maintenance_equipments'
   | 'maintenance_providers'
   | 'maintenance_interventions';
+
+export const SYNC_SUBCOLLECTIONS: SyncSubcollection[] = [
+  'tasks',
+  'shopping_items',
+  'maintenance_equipments',
+  'maintenance_providers',
+  'maintenance_interventions',
+];
+
+function buildWorkspaceItemDoc(
+  userUid: string,
+  existingData: Record<string, unknown> | null,
+  fields: {
+    title?: string;
+    notes?: string;
+    status?: string;
+    amount?: number;
+    tags?: string[];
+    payload: Record<string, unknown>;
+  }
+): Record<string, unknown> {
+  const now = Timestamp.now();
+  const createdBy = existingData?.createdBy ? String(existingData.createdBy) : userUid;
+  const createdAt = existingData?.createdAt ?? now;
+
+  const docData: Record<string, unknown> = {
+    createdBy,
+    createdAt,
+    updatedAt: now,
+    payload: cleanForFirestore(fields.payload),
+  };
+  if (fields.title !== undefined && fields.title !== null) {
+    docData.title = String(fields.title).slice(0, 200);
+  }
+  if (fields.notes !== undefined && fields.notes !== null) {
+    docData.notes = String(fields.notes).slice(0, 5000);
+  }
+  if (fields.status !== undefined && fields.status !== null && String(fields.status).length >= 1) {
+    docData.status = String(fields.status).slice(0, 40);
+  }
+  if (typeof fields.amount === 'number' && Number.isFinite(fields.amount)) {
+    docData.amount = fields.amount;
+  }
+  if (Array.isArray(fields.tags)) {
+    docData.tags = fields.tags.slice(0, 20);
+  }
+  return docData;
+}
+
+async function commitBatchOperations(
+  firestore: Firestore,
+  ops: Array<{ type: 'set'; ref: DocumentReference; data: Record<string, unknown> } | { type: 'delete'; ref: DocumentReference }>
+): Promise<void> {
+  for (let i = 0; i < ops.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = ops.slice(i, i + BATCH_CHUNK_SIZE);
+    const batch = writeBatch(firestore);
+    for (const op of chunk) {
+      if (op.type === 'set') {
+        batch.set(op.ref, op.data);
+      } else {
+        batch.delete(op.ref);
+      }
+    }
+    await batch.commit();
+  }
+}
+
+export interface WorkspaceSnapshotPayload {
+  tasks: TaskItem[];
+  shoppingItems: ShoppingItem[];
+  equipments: MaintenanceEquipment[];
+  providers: ServiceProvider[];
+  interventions: MaintenanceIntervention[];
+  settings?: AppSettings;
+}
+
+export async function syncAllHouseDataToFirestore(
+  workspaceId: string,
+  data: WorkspaceSnapshotPayload
+): Promise<void> {
+  const { auth, firestore } = ensureFirebase();
+  const user = auth.currentUser;
+  if (!user) throw new Error('Non connecté au Cloud.');
+
+  await ensureRemoteWorkspace(workspaceId, 'Ma Maison');
+
+  const collectionsToSync: Array<{
+    subcol: SyncSubcollection;
+    items: Array<{
+      id: string;
+      fields: {
+        title?: string;
+        notes?: string;
+        status?: string;
+        amount?: number;
+        tags?: string[];
+        payload: Record<string, unknown>;
+      };
+    }>;
+  }> = [
+    {
+      subcol: 'tasks',
+      items: data.tasks
+        .filter((t) => t && t.id)
+        .map((t) => ({
+          id: String(t.id),
+          fields: {
+            title: t.title,
+            notes: t.description,
+            status: t.status,
+            payload: { ...t, id: String(t.id) },
+          },
+        })),
+    },
+    {
+      subcol: 'shopping_items',
+      items: data.shoppingItems
+        .filter((s) => s && s.id)
+        .map((s) => ({
+          id: String(s.id),
+          fields: {
+            title: s.name,
+            status: s.checked ? 'checked' : 'pending',
+            amount: s.estimatedPrice,
+            payload: { ...s, id: String(s.id) },
+          },
+        })),
+    },
+    {
+      subcol: 'maintenance_equipments',
+      items: data.equipments
+        .filter((eq) => eq && eq.id)
+        .map((eq) => ({
+          id: String(eq.id),
+          fields: {
+            title: eq.name,
+            notes: eq.notes,
+            status: eq.category,
+            amount: eq.estimatedAnnualCost,
+            payload: { ...eq, id: String(eq.id) },
+          },
+        })),
+    },
+    {
+      subcol: 'maintenance_providers',
+      items: data.providers
+        .filter((p) => p && p.id)
+        .map((p) => ({
+          id: String(p.id),
+          fields: {
+            title: p.companyName,
+            notes: p.notes,
+            payload: { ...p, id: String(p.id) },
+          },
+        })),
+    },
+    {
+      subcol: 'maintenance_interventions',
+      items: data.interventions
+        .filter((inter) => inter && inter.id)
+        .map((inter) => ({
+          id: String(inter.id),
+          fields: {
+            title: inter.title,
+            notes: inter.notes,
+            amount: inter.cost,
+            payload: { ...inter, id: String(inter.id) },
+          },
+        })),
+    },
+  ];
+
+  const ops: Array<
+    | { type: 'set'; ref: DocumentReference; data: Record<string, unknown> }
+    | { type: 'delete'; ref: DocumentReference }
+  > = [];
+
+  for (const { subcol, items } of collectionsToSync) {
+    const colRef = collection(firestore, WORKSPACE_COLLECTION, workspaceId, subcol);
+    const existingSnap = await getDocs(colRef);
+    const existingById = new Map<string, Record<string, unknown>>();
+    existingSnap.docs.forEach((d) => {
+      existingById.set(d.id, d.data());
+    });
+
+    const currentIds = new Set(items.map((i) => i.id));
+    existingSnap.docs.forEach((d) => {
+      if (!currentIds.has(d.id)) {
+        ops.push({ type: 'delete', ref: d.ref });
+      }
+    });
+
+    items.forEach((item) => {
+      const ref = doc(colRef, item.id);
+      const docData = buildWorkspaceItemDoc(
+        user.uid,
+        existingById.get(item.id) ?? null,
+        item.fields
+      );
+      ops.push({ type: 'set', ref, data: docData });
+    });
+  }
+
+  await commitBatchOperations(firestore, ops);
+
+  if (data.settings) {
+    await saveUserSettingsToFirestore(data.settings);
+  }
+}
+
+export async function saveUserSettingsToFirestore(settings: AppSettings): Promise<void> {
+  const inst = tryInitFirebase();
+  if (!inst || !inst.auth.currentUser) return;
+  const uid = inst.auth.currentUser.uid;
+  const ref = doc(inst.firestore, 'users', uid, 'settings', 'main');
+  const existing = await getDoc(ref);
+  const now = Timestamp.now();
+  const createdAt = existing.exists() && existing.data()?.createdAt ? existing.data().createdAt : now;
+
+  // On ne pousse jamais la clé API Gemini privée dans le cloud, uniquement comfyUiUrl
+  await setDoc(ref, {
+    createdAt,
+    updatedAt: now,
+    title: 'travaux-maison-settings',
+    payload: cleanForFirestore({
+      comfyUiUrl: settings.comfyUiUrl || '',
+      updatedAtIso: new Date().toISOString(),
+    }),
+  });
+}
 
 async function upsertWorkspaceItem(
   workspaceId: string,
@@ -245,32 +595,10 @@ async function upsertWorkspaceItem(
   const user = auth.currentUser;
   if (!user) return;
 
-  const ref = doc(firestore, WORKSPACE_COLLECTION, workspaceId, subcol, itemId);
+  const ref = doc(firestore, WORKSPACE_COLLECTION, workspaceId, subcol, String(itemId));
   const existing = await getDoc(ref);
-  const now = Timestamp.now();
-
   const existingData = existing.exists() ? existing.data() : null;
-  const createdBy = existingData?.createdBy ? String(existingData.createdBy) : user.uid;
-  const createdAt = existingData?.createdAt ?? now;
-
-  const docData: Record<string, unknown> = {
-    createdBy,
-    createdAt,
-    updatedAt: now,
-    payload: fields.payload,
-  };
-  if (fields.title !== undefined) docData.title = fields.title.slice(0, 200);
-  if (fields.notes !== undefined) docData.notes = fields.notes.slice(0, 5000);
-  if (fields.status !== undefined && fields.status.length >= 1) {
-    docData.status = fields.status.slice(0, 40);
-  }
-  if (typeof fields.amount === 'number' && Number.isFinite(fields.amount)) {
-    docData.amount = fields.amount;
-  }
-  if (Array.isArray(fields.tags)) {
-    docData.tags = fields.tags.slice(0, 20);
-  }
-
+  const docData = buildWorkspaceItemDoc(user.uid, existingData, fields);
   await setDoc(ref, docData);
 }
 
@@ -281,7 +609,7 @@ async function deleteWorkspaceItem(
 ): Promise<void> {
   const { auth, firestore } = ensureFirebase();
   if (!auth.currentUser) return;
-  const ref = doc(firestore, WORKSPACE_COLLECTION, workspaceId, subcol, itemId);
+  const ref = doc(firestore, WORKSPACE_COLLECTION, workspaceId, subcol, String(itemId));
   await deleteDoc(ref);
 }
 
@@ -290,7 +618,7 @@ export function pushTaskRemote(workspaceId: string, task: TaskItem): Promise<voi
     title: task.title,
     notes: task.description,
     status: task.status,
-    payload: { ...task },
+    payload: { ...task, id: String(task.id) },
   });
 }
 
@@ -303,7 +631,7 @@ export function pushShoppingRemote(workspaceId: string, item: ShoppingItem): Pro
     title: item.name,
     status: item.checked ? 'checked' : 'pending',
     amount: item.estimatedPrice,
-    payload: { ...item },
+    payload: { ...item, id: String(item.id) },
   });
 }
 
@@ -320,7 +648,7 @@ export function pushEquipmentRemote(
     notes: eq.notes,
     status: eq.category,
     amount: eq.estimatedAnnualCost,
-    payload: { ...eq },
+    payload: { ...eq, id: String(eq.id) },
   });
 }
 
@@ -332,7 +660,7 @@ export function pushProviderRemote(workspaceId: string, prov: ServiceProvider): 
   return upsertWorkspaceItem(workspaceId, 'maintenance_providers', prov.id, {
     title: prov.companyName,
     notes: prov.notes,
-    payload: { ...prov },
+    payload: { ...prov, id: String(prov.id) },
   });
 }
 
@@ -348,7 +676,7 @@ export function pushInterventionRemote(
     title: inter.title,
     notes: inter.notes,
     amount: inter.cost,
-    payload: { ...inter },
+    payload: { ...inter, id: String(inter.id) },
   });
 }
 
@@ -357,12 +685,13 @@ export function deleteInterventionRemote(workspaceId: string, interId: string): 
 }
 
 export interface RemoteSyncHandlers {
-  onTasks: (items: TaskItem[]) => void;
-  onShoppingItems: (items: ShoppingItem[]) => void;
-  onEquipments: (items: MaintenanceEquipment[]) => void;
-  onProviders: (items: ServiceProvider[]) => void;
-  onInterventions: (items: MaintenanceIntervention[]) => void;
-  onError?: (err: Error) => void;
+  onCollectionUpdate: <T extends { id: string; houseId: string }>(
+    subcol: SyncSubcollection,
+    items: T[],
+    fromCache: boolean
+  ) => void;
+  onSettingsUpdate?: (payload: Partial<AppSettings>) => void;
+  onError?: (err: Error, label: string) => void;
 }
 
 export function subscribeWorkspaceCollections(
@@ -370,12 +699,16 @@ export function subscribeWorkspaceCollections(
   localHouseId: string,
   handlers: RemoteSyncHandlers
 ): Unsubscribe {
-  const { firestore } = ensureFirebase();
+  stopAllFirestoreListeners();
+  const inst = tryInitFirebase();
+  const currentUser = inst?.auth.currentUser;
+  if (!inst || !currentUser) {
+    return () => {};
+  }
+  const { firestore } = inst;
+  const uid = currentUser.uid;
 
-  const listen = <T extends { id: string; houseId: string }>(
-    subcol: SyncSubcollection,
-    cb: (items: T[]) => void
-  ) =>
+  const listen = <T extends { id: string; houseId: string }>(subcol: SyncSubcollection) =>
     onSnapshot(
       collection(firestore, WORKSPACE_COLLECTION, workspaceId, subcol),
       (snap) => {
@@ -383,23 +716,35 @@ export function subscribeWorkspaceCollections(
           .map((d) => {
             const p = d.data()?.payload as T | undefined;
             if (!p || typeof p !== 'object') return null;
-            return { ...p, id: d.id, houseId: localHouseId };
+            return { ...p, id: String(d.id), houseId: localHouseId };
           })
           .filter((x): x is T => x !== null);
-        cb(items);
+        handlers.onCollectionUpdate(subcol, items, snap.metadata.fromCache);
       },
-      (err) => handlers.onError?.(err)
+      (err) => handlers.onError?.(err, subcol)
     );
 
-  const unsubs = [
-    listen<TaskItem>('tasks', handlers.onTasks),
-    listen<ShoppingItem>('shopping_items', handlers.onShoppingItems),
-    listen<MaintenanceEquipment>('maintenance_equipments', handlers.onEquipments),
-    listen<ServiceProvider>('maintenance_providers', handlers.onProviders),
-    listen<MaintenanceIntervention>('maintenance_interventions', handlers.onInterventions),
-  ];
+  const unsubs: Unsubscribe[] = SYNC_SUBCOLLECTIONS.map((subcol) => listen(subcol));
+
+  // Écoute des préférences utilisateur dans users/{uid}/settings/main
+  unsubs.push(
+    onSnapshot(
+      doc(firestore, 'users', uid, 'settings', 'main'),
+      (snap) => {
+        if (snap.exists()) {
+          const payload = snap.data()?.payload as Partial<AppSettings> | undefined;
+          if (payload && typeof payload === 'object') {
+            handlers.onSettingsUpdate?.(payload);
+          }
+        }
+      },
+      (err) => handlers.onError?.(err, 'settings')
+    )
+  );
+
+  activeListeners = unsubs;
 
   return () => {
-    unsubs.forEach((u) => u());
+    stopAllFirestoreListeners();
   };
 }
