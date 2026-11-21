@@ -75,6 +75,10 @@ function ensureFirebase(): { app: FirebaseApp; auth: Auth; firestore: Firestore 
   return { app: appInstance, auth: authInstance, firestore: dbInstance };
 }
 
+export function getFirebaseApp(): FirebaseApp {
+  return ensureFirebase().app;
+}
+
 export function getFirebaseAuth(): Auth {
   return ensureFirebase().auth;
 }

@@ -1,3 +1,5 @@
+import { getAI, getGenerativeModel, GoogleAIBackend, type Part } from 'firebase/ai';
+import { getFirebaseApp } from './firebaseSync';
 import type {
   ArchShape,
   Floor,
@@ -131,39 +133,73 @@ async function callGeminiTextOrJson(
   parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }>,
   expectJson = true
 ): Promise<string> {
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash', 'gemini-1.5-flash'];
+  const aiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
   let lastError = 'Erreur inconnue';
 
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
-      const body: Record<string, unknown> = {
-        contents: [{ parts }],
-      };
-      if (expectJson) {
-        body.generationConfig = { responseMimeType: 'application/json' };
+  try {
+    const ai = getAI(getFirebaseApp(), { backend: new GoogleAIBackend() });
+    const aiParts: (string | Part)[] = parts.map((p) => {
+      if (p.inline_data) {
+        return {
+          type: 'inlineData',
+          inlineData: { mimeType: p.inline_data.mime_type, data: p.inline_data.data },
+        } as Part;
       }
+      return p.text ?? '';
+    });
 
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        lastError = (errData as { error?: { message?: string } })?.error?.message || `HTTP ${res.status}`;
-        continue;
+    for (const modelName of aiModels) {
+      try {
+        const model = getGenerativeModel(ai, {
+          model: modelName,
+          ...(expectJson ? { generationConfig: { responseMimeType: 'application/json' } } : {}),
+        });
+        const res = await model.generateContent(aiParts);
+        const text = res.response.text();
+        if (typeof text === 'string' && text.trim().length > 0) {
+          return text;
+        }
+        lastError = 'Réponse vide de Firebase AI Logic';
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
+    }
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+  }
 
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (typeof text === 'string' && text.trim().length > 0) {
-        return text;
+  if (apiKey.trim()) {
+    for (const model of aiModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
+        const body: Record<string, unknown> = {
+          contents: [{ parts }],
+        };
+        if (expectJson) {
+          body.generationConfig = { responseMimeType: 'application/json' };
+        }
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          lastError = (errData as { error?: { message?: string } })?.error?.message || `HTTP ${res.status}`;
+          continue;
+        }
+
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (typeof text === 'string' && text.trim().length > 0) {
+          return text;
+        }
+        lastError = 'Réponse vide de Gemini';
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
-      lastError = 'Réponse vide de Gemini';
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
     }
   }
   throw new Error(lastError);
@@ -809,7 +845,7 @@ export async function apply3DStyleFromPrompt(
   floor: Floor,
   promptText: string
 ): Promise<{ updatedFloor: Floor; summary: string }> {
-  if (!apiKey.trim()) {
+  if (!navigator.onLine) {
     return apply3DStyleHeuristic(floor, promptText);
   }
 
@@ -1140,7 +1176,7 @@ export async function extractWebProduct(
     fallback.imageUrl = pastedImageDataUrl;
   }
 
-  if (!apiKey.trim()) {
+  if (!navigator.onLine) {
     return fallback;
   }
 

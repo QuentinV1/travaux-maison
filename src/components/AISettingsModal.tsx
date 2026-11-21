@@ -32,17 +32,13 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   };
 
   const handleTest = async () => {
-    if (!geminiApiKey.trim()) {
-      setTestResult({ ok: false, message: 'Veuillez saisir une clé API Gemini.' });
-      return;
-    }
     setTesting(true);
     setTestResult(null);
     try {
       const ok = await testGeminiConnection(geminiApiKey);
       setTestResult(
         ok
-          ? { ok: true, message: 'Connexion Gemini réussie ! Toutes les fonctions IA V3 sont actives.' }
+          ? { ok: true, message: 'Connexion Firebase AI Logic (Gemini) réussie !' }
           : { ok: false, message: 'Réponse inattendue de l’API.' }
       );
     } catch (err) {
