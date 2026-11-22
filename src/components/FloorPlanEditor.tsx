@@ -35,6 +35,7 @@ import {
   ArrowLeft,
   Compass,
   ArrowRight,
+  Trees,
 } from 'lucide-react';
 import { NumericInput } from './NumericInput';
 import type {
@@ -824,7 +825,7 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
   const deleteSelected = () => {
     if (!selection) return;
     if (isSelectionLocked) {
-      setShowLockedToast('⚠️ Action impossible : cet élément est verrouillé par le cadenas !');
+      setShowLockedToast('Action impossible : cet élément est verrouillé par le cadenas !');
       setTimeout(() => setShowLockedToast(null), 3000);
       return;
     }
@@ -1478,13 +1479,14 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                 <button
                   key={f.id}
                   onClick={() => onSelectFloor(f.id)}
-                  className={`px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors min-h-[40px] shrink-0 ${
+                  className={`px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors min-h-[40px] shrink-0 inline-flex items-center gap-1.5 ${
                     f.id === floor.id
                       ? 'bg-slate-900 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  {f.isExterior ? '🌿 ' : ''}{f.name}
+                  {f.isExterior && <Trees className="w-3.5 h-3.5 shrink-0" />}
+                  {f.name}
                 </button>
               ))}
           </div>
@@ -2128,9 +2130,8 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                 const displayAngle =
                   dim.angleDeg > 90 || dim.angleDeg < -90 ? dim.angleDeg + 180 : dim.angleDeg;
                 const isLocked = Boolean(floor.lockedDimensionIds?.includes(dim.pairKey));
-                const rawText = formatMeters(dim.clearDistanceCm, unitMode);
-                const text = isLocked ? `🔒 ${rawText}` : rawText;
-                const pillW = Math.max(48, text.length * 6.0 + 14);
+                const text = formatMeters(dim.clearDistanceCm, unitMode);
+                const pillW = Math.max(48, text.length * 6.0 + (isLocked ? 22 : 14));
                 const pillH = 15;
                 const strokeColor = isLocked
                   ? '#d97706'
@@ -2244,10 +2245,33 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                         strokeWidth={isRelatedToSelected || isLocked ? 1.5 : 1}
                         cornerRadius={5}
                       />
+                      {isLocked && (
+                        <>
+                          <Arc
+                            x={-pillW / 2 + 8}
+                            y={-1}
+                            innerRadius={1.5}
+                            outerRadius={2.5}
+                            angle={180}
+                            rotation={180}
+                            fill="#d97706"
+                            listening={false}
+                          />
+                          <Rect
+                            x={-pillW / 2 + 5}
+                            y={-1}
+                            width={6}
+                            height={4.5}
+                            fill="#d97706"
+                            cornerRadius={1}
+                            listening={false}
+                          />
+                        </>
+                      )}
                       <Text
-                        x={-pillW / 2}
+                        x={isLocked ? -pillW / 2 + 8 : -pillW / 2}
                         y={-pillH / 2 + 2.5}
-                        width={pillW}
+                        width={isLocked ? pillW - 8 : pillW}
                         text={text}
                         fontSize={9.5}
                         fontStyle="bold"

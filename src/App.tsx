@@ -9,6 +9,7 @@ import {
   Box,
   Wrench,
   Cloud,
+  MessageSquarePlus,
   User as UserIcon,
   Plus,
   Download,
@@ -39,6 +40,7 @@ import { PhotosGallery } from './components/PhotosGallery';
 import { AISettingsModal } from './components/AISettingsModal';
 import { WebCatalogModal } from './components/WebCatalogModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
+import { FeedbackModal } from './components/FeedbackModal';
 import { AuthGateScreen } from './components/AuthGateScreen';
 import {
   clearAuthCache,
@@ -88,6 +90,7 @@ export function App() {
   const [showDeleteHouseModal, setShowDeleteHouseModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
   const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showWebCatalogFrom3D, setShowWebCatalogFrom3D] = useState(false);
   const [aiReady, setAiReady] = useState(() => hasGeminiKey());
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
@@ -997,6 +1000,16 @@ export function App() {
         {/* Backup, Cloud Sync & AI Settings Actions */}
         <div className="flex flex-wrap items-center gap-1.5 max-w-full">
           <button
+            type="button"
+            onClick={() => setShowFeedbackModal(true)}
+            title="Envoyer un feedback (évolution ou bug)"
+            aria-label="Envoyer un feedback"
+            className="px-3 py-2 rounded-xl text-xs font-semibold border bg-white border-slate-200 text-slate-700 hover:bg-slate-100 flex items-center gap-1.5 min-h-[40px] transition-colors"
+          >
+            <MessageSquarePlus className="w-4 h-4 text-sky-600" />
+            <span className="hidden sm:inline">Feedback</span>
+          </button>
+          <button
             id="btn-auth-header"
             onClick={() => setShowCloudSyncModal(true)}
             className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[40px] transition-colors ${
@@ -1340,6 +1353,14 @@ export function App() {
       />
 
       {/* Cloud Sync Modal (Firebase quentin-apps-hub) */}
+      <FeedbackModal
+        open={showFeedbackModal}
+        user={firebaseUser}
+        db={getFirestoreDb()}
+        context={`tab=${activeTab}`}
+        onClose={() => setShowFeedbackModal(false)}
+      />
+
       <CloudSyncModal
         isOpen={showCloudSyncModal}
         onClose={() => setShowCloudSyncModal(false)}

@@ -172,15 +172,15 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
   }, [tasks, statusFilter, roomFilter]);
 
   const buildShoppingText = (taskTitle: string, items: ShoppingItem[]) => {
-    const header = `🏠 ${house.name} — ${taskTitle}\n`;
+    const header = `${house.name} — ${taskTitle}\n`;
     let total = 0;
     const lines = items.map((i) => {
       const lineCost = (i.estimatedPrice ?? 0) * (i.quantity ?? 1);
       total += lineCost;
       const priceTag = i.estimatedPrice != null ? ` [${(lineCost).toFixed(2)} €]` : '';
-      return `${i.checked ? '☑' : '☐'} ${i.name} (${i.quantity} ${i.unit})${priceTag}${i.store ? ` (${i.store})` : ''}`;
+      return `${i.checked ? '[x]' : '[ ]'} ${i.name} (${i.quantity} ${i.unit})${priceTag}${i.store ? ` (${i.store})` : ''}`;
     });
-    const footer = total > 0 ? `\n💰 Total estimé : ${total.toFixed(2)} €` : '';
+    const footer = total > 0 ? `\nTotal estimé : ${total.toFixed(2)} €` : '';
     return header + lines.join('\n') + footer;
   };
 
@@ -364,8 +364,9 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
         </div>
 
         {syncNotice && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-xs font-semibold text-emerald-800">
-            ✓ {syncNotice}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-xs font-semibold text-emerald-800 flex items-center gap-2">
+            <Check className="w-4 h-4 shrink-0" />
+            <span>{syncNotice}</span>
           </div>
         )}
 
@@ -743,16 +744,18 @@ export const TasksAndShopping: React.FC<TasksAndShoppingProps> = ({
                                     }
                                     setEditingPriceItemId(null);
                                   }}
-                                  className="px-2 py-1 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700"
+                                  className="px-2 py-1 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700 inline-flex items-center justify-center"
+                                  aria-label="Valider"
                                 >
-                                  ✓
+                                  <Check className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setEditingPriceItemId(null)}
-                                  className="px-1.5 py-1 text-slate-400 hover:text-slate-600 text-xs"
+                                  className="px-1.5 py-1 text-slate-400 hover:text-slate-600 text-xs inline-flex items-center justify-center"
+                                  aria-label="Annuler"
                                 >
-                                  ✕
+                                  <X className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             ) : (

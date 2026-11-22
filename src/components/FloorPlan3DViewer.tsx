@@ -1916,7 +1916,10 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
                             {cuttingFurnitureImg ? (
                               'Analyse de la photo...'
                             ) : (
-                              '🎨 Extraire la couleur de la photo sur le modèle 3D'
+                              <>
+                                <Palette className="w-3.5 h-3.5 shrink-0" />
+                                Extraire la couleur de la photo sur le modèle 3D
+                              </>
                             )}
                           </button>
                         )}

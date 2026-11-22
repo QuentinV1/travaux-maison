@@ -11,6 +11,8 @@ import {
   ArrowRight,
   ShieldCheck,
   Shapes,
+  Lightbulb,
+  Ruler,
 } from 'lucide-react';
 import { useEscapeKey } from '../utils/useEscapeKey';
 
@@ -78,8 +80,9 @@ export const FloorTutorialModal: React.FC<FloorTutorialModalProps> = ({ isOpen, 
           {activeTab === 'difference' && (
             <div className="space-y-4">
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                <h3 className="font-bold text-blue-900 text-base mb-1">
-                  💡 La règle d'or architecturale : Le Mur structure, la Pièce habite !
+                <h3 className="font-bold text-blue-900 text-base mb-1 flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4 text-blue-600 shrink-0" />
+                  La règle d'or architecturale : Le Mur structure, la Pièce habite !
                 </h3>
                 <p className="text-blue-800 text-xs sm:text-sm">
                   Pour votre étage (2 chambres, salle de bain, bureau, couloir/escalier) :{' '}
@@ -229,8 +232,9 @@ export const FloorTutorialModal: React.FC<FloorTutorialModalProps> = ({ isOpen, 
           {activeTab === 'irregular' && (
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                <h3 className="font-bold text-amber-950 text-base mb-1">
-                  📐 Comment gérer un couloir en L, une pièce en biseau ou mansardée ?
+                <h3 className="font-bold text-amber-950 text-base mb-1 flex items-center gap-2">
+                  <Ruler className="w-4 h-4 text-amber-700 shrink-0" />
+                  Comment gérer un couloir en L, une pièce en biseau ou mansardée ?
                 </h3>
                 <p className="text-amber-900 text-xs sm:text-sm">
                   Dans une maison, les couloirs et pièces sous combles ne sont jamais de simples rectangles. Voici comment faire :
