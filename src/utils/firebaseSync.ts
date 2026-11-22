@@ -42,6 +42,7 @@ import type {
   ShoppingItem,
   TaskItem,
 } from '../types';
+import { clearAuthCache } from './accessControl';
 
 export const FIREBASE_CONFIG = {
   projectId: 'quentin-apps-hub',
@@ -109,7 +110,7 @@ export function formatFirestoreError(err: unknown, fallback = 'Erreur de synchro
     msg.toLowerCase().includes('missing or insufficient permissions') ||
     msg.toLowerCase().includes('permission-denied')
   ) {
-    return 'Accès Firestore refusé (vérifiez que votre e-mail est bien vérifié et autorisé).';
+    return 'Accès Firestore refusé (vérifiez que votre compte est autorisé).';
   }
   return msg || fallback;
 }
@@ -245,6 +246,7 @@ export function stopAllFirestoreListeners(): void {
 }
 
 export async function signOutFirebase(): Promise<void> {
+  clearAuthCache('travaux-maison');
   stopAllFirestoreListeners();
   reinitialiserEtatCloud();
   const inst = tryInitFirebase();

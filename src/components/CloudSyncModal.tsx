@@ -33,8 +33,6 @@ import {
   getFirestoreDb,
   listMyRemoteWorkspaces,
   registerWithEmail,
-  reloadFirebaseUser,
-  resendVerificationEmail,
   resetFirebasePassword,
   signInWithEmail,
   signInWithGoogle,
@@ -54,7 +52,7 @@ interface CloudSyncModalProps {
   onEnableSync: (workspaceId: string) => Promise<void>;
   onDisableSync: () => Promise<void>;
   onForceSync: () => Promise<void>;
-  onUserVerified: (user: User) => Promise<void>;
+  onUserVerified?: (user: User) => Promise<void>;
 }
 
 export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
@@ -68,7 +66,6 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   onEnableSync,
   onDisableSync,
   onForceSync,
-  onUserVerified,
 }) => {
   useEscapeKey(isOpen, onClose);
 
@@ -86,7 +83,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   const [uidByEmail, setUidByEmail] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!isOpen || !user || !user.emailVerified) {
+    if (!isOpen || !user) {
       setAccessStatus(null);
       setActiveTab('account');
       setShareableUsers([]);
@@ -95,7 +92,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     }
     const db = getFirestoreDb();
     let cancelled = false;
-    resolveUserAccess(db, 'travaux-maison', user.email)
+    resolveUserAccess(db, 'travaux-maison', user.email, user.uid)
       .then((status) => {
         if (!cancelled) {
           setAccessStatus(status);
@@ -140,7 +137,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, user, user?.email, user?.emailVerified]);
+  }, [isOpen, user, user?.email, user?.uid]);
 
   useEffect(() => {
     if (!isOpen || !user) {
@@ -192,7 +189,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     try {
       if (isRegister) {
         await registerWithEmail(email, password);
-        setInfo('Compte créé ! Un e-mail de vérification vient de vous être envoyé.');
+        setInfo('Compte créé et connecté.');
       } else {
         await signInWithEmail(email, password);
       }
@@ -222,43 +219,6 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
       setInfo('E-mail de réinitialisation envoyé (vérifiez vos spams).');
     } catch (err) {
       setError(formatFirestoreError(err, 'Impossible d’envoyer l’e-mail de réinitialisation.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleResendVerification = async () => {
-    setBusy(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const sent = await resendVerificationEmail();
-      setInfo(
-        sent
-          ? 'E-mail de vérification envoyé ! Vérifiez votre boîte de réception (et les spams), puis cliquez sur « J’ai vérifié ».'
-          : 'Votre adresse e-mail est déjà vérifiée.'
-      );
-    } catch (err) {
-      setError(formatFirestoreError(err, 'Impossible d’envoyer l’e-mail de vérification.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleCheckVerified = async () => {
-    setBusy(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const refreshed = await reloadFirebaseUser();
-      if (refreshed?.emailVerified) {
-        await onUserVerified(refreshed);
-        setInfo('Adresse e-mail vérifiée ! Synchronisation Cloud activée.');
-      } else {
-        setError('Adresse toujours non vérifiée. Cliquez d’abord sur le lien reçu par e-mail.');
-      }
-    } catch (err) {
-      setError(formatFirestoreError(err, 'Erreur lors de la vérification du statut e-mail.'));
     } finally {
       setBusy(false);
     }
@@ -648,36 +608,6 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 </button>
               </div>
             </div>
-
-            {/* Unverified Email Box */}
-            {!user.emailVerified && (
-              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 text-xs text-amber-900 space-y-2.5">
-                <div className="font-bold text-amber-800">Adresse e-mail non vérifiée</div>
-                <p className="text-amber-700 leading-relaxed">
-                  Les règles Firestore de <code>quentin-apps-hub</code> exigent une adresse e-mail
-                  vérifiée. Vérifiez votre boîte mail (ou vos spams), cliquez sur le lien reçu, puis
-                  sur « J’ai vérifié ».
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={handleResendVerification}
-                    className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 font-medium hover:bg-amber-100 disabled:opacity-50"
-                  >
-                    Renvoyer l’e-mail de vérification
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={handleCheckVerified}
-                    className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700 disabled:opacity-50"
-                  >
-                    J’ai vérifié
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* Primary Cloud Actions (Synchroniser maintenant / Se déconnecter) */}
             <div className="flex flex-col sm:flex-row gap-2">

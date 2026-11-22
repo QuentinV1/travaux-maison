@@ -3,6 +3,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   setDoc,
   writeBatch,
@@ -38,6 +39,7 @@ export const INITIAL_GLOBAL_WHITELIST: Array<{ email: string; displayName: strin
   { email: 'clementvaslin@gmail.com', displayName: 'Clément', role: 'user' },
   { email: 'delisle-margaux@hotmail.com', displayName: 'Margaux', role: 'user' },
   { email: 'mar9aux-delisle@hotmail.fr', displayName: 'Margaux (alt)', role: 'user' },
+  { email: 'vaslin.muriel45@gmail.com', displayName: 'Muriel', role: 'user' },
 ];
 
 export function normalizeEmail(email: string): string {
@@ -48,21 +50,101 @@ export function isValidEmailFormat(email: string): boolean {
   return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email.trim());
 }
 
+const AUTH_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 jours
+
+interface CachedAuthAccess {
+  uid: string;
+  email: string;
+  access: AccessStatus;
+  verifiedAt: number;
+}
+
+export function getAuthCacheKey(appId: string): string {
+  return `hub_auth_cache_${appId}`;
+}
+
+export function clearAuthCache(appId: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(getAuthCacheKey(appId));
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function readAuthCache(appId: string, uid: string | undefined, email: string): AccessStatus | null {
+  if (!uid || !email || typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(getAuthCacheKey(appId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<CachedAuthAccess>;
+    if (
+      parsed.uid !== uid ||
+      normalizeEmail(parsed.email || '') !== email ||
+      typeof parsed.verifiedAt !== 'number' ||
+      Date.now() - parsed.verifiedAt >= AUTH_CACHE_TTL_MS ||
+      !parsed.access?.hasAppAccess
+    ) {
+      return null;
+    }
+    return parsed.access;
+  } catch {
+    return null;
+  }
+}
+
+function writeAuthCache(appId: string, uid: string | undefined, email: string, access: AccessStatus): void {
+  if (!uid || !email || !access.hasAppAccess || typeof localStorage === 'undefined') return;
+  try {
+    const payload: CachedAuthAccess = {
+      uid,
+      email,
+      access,
+      verifiedAt: Date.now(),
+    };
+    localStorage.setItem(getAuthCacheKey(appId), JSON.stringify(payload));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function deniedAccessStatus(): AccessStatus {
+  return {
+    isGlobalAdmin: false,
+    isAppAdmin: false,
+    isAdmin: false,
+    hasAppAccess: false,
+    appConfigured: false,
+    role: null,
+  };
+}
+
+function isOfflineFirestoreError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code ?? '';
+  const msg = ((err as { message?: string })?.message ?? '').toLowerCase();
+  return (
+    code === 'unavailable' ||
+    msg.includes('offline') ||
+    msg.includes('network') ||
+    msg.includes('failed to fetch')
+  );
+}
+
 export async function resolveUserAccess(
   db: Firestore | null | undefined,
   appId: string,
   userEmail: string | null | undefined,
+  uid?: string,
 ): Promise<AccessStatus> {
   const email = userEmail ? normalizeEmail(userEmail) : '';
-  if (!db || !email) {
-    return {
-      isGlobalAdmin: false,
-      isAppAdmin: false,
-      isAdmin: false,
-      hasAppAccess: false,
-      appConfigured: false,
-      role: null,
-    };
+  if (!email) {
+    return deniedAccessStatus();
+  }
+
+  const isNavigatorOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  if (!db || isNavigatorOffline) {
+    return readAuthCache(appId, uid, email) ?? deniedAccessStatus();
   }
 
   const isRoot = email === ROOT_ADMIN_EMAIL;
@@ -71,7 +153,7 @@ export async function resolveUserAccess(
   let inGlobal = isRoot;
 
   try {
-    const globalSnap = await getDoc(doc(db, 'hub_global_whitelist', email));
+    const globalSnap = await getDocFromServer(doc(db, 'hub_global_whitelist', email));
     if (globalSnap.exists()) {
       inGlobal = true;
       const data = globalSnap.data() as Partial<WhitelistEntry>;
@@ -79,15 +161,21 @@ export async function resolveUserAccess(
         isGlobalAdmin = true;
       }
     }
-  } catch {
-    // Ignore if rules/offline prevent read
+  } catch (err) {
+    if (isOfflineFirestoreError(err)) {
+      return readAuthCache(appId, uid, email) ?? deniedAccessStatus();
+    }
+    // Ignore if rules prevent read
   }
 
   let appConfigured = false;
   try {
-    const appSnap = await getDoc(doc(db, 'hub_apps', appId));
+    const appSnap = await getDocFromServer(doc(db, 'hub_apps', appId));
     appConfigured = appSnap.exists();
-  } catch {
+  } catch (err) {
+    if (isOfflineFirestoreError(err)) {
+      return readAuthCache(appId, uid, email) ?? deniedAccessStatus();
+    }
     appConfigured = false;
   }
 
@@ -95,7 +183,7 @@ export async function resolveUserAccess(
   let inApp = isGlobalAdmin;
 
   try {
-    const memberSnap = await getDoc(doc(db, 'hub_apps', appId, 'members', email));
+    const memberSnap = await getDocFromServer(doc(db, 'hub_apps', appId, 'members', email));
     if (memberSnap.exists()) {
       inApp = true;
       const data = memberSnap.data() as Partial<WhitelistEntry>;
@@ -103,14 +191,31 @@ export async function resolveUserAccess(
         isAppAdmin = true;
       }
     }
-  } catch {
-    // Not a member or offline
+  } catch (err) {
+    if (isOfflineFirestoreError(err)) {
+      return readAuthCache(appId, uid, email) ?? deniedAccessStatus();
+    }
+    // Not a member or rules prevent read
   }
 
   const isAdmin = isGlobalAdmin || isAppAdmin;
-  const hasAppAccess = isAdmin || (appConfigured ? inApp : inGlobal || INITIAL_GLOBAL_WHITELIST.some((u) => u.email === email));
+  let hasAppAccess = isAdmin || (appConfigured ? inApp : inGlobal);
 
-  return {
+  if (!hasAppAccess && !appConfigured) {
+    try {
+      const rootGlobalSnap = await getDocFromServer(doc(db, 'hub_global_whitelist', ROOT_ADMIN_EMAIL));
+      if (!rootGlobalSnap.exists()) {
+        hasAppAccess = INITIAL_GLOBAL_WHITELIST.some((u) => u.email === email);
+      }
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        return readAuthCache(appId, uid, email) ?? deniedAccessStatus();
+      }
+      hasAppAccess = false;
+    }
+  }
+
+  const status: AccessStatus = {
     isGlobalAdmin,
     isAppAdmin,
     isAdmin,
@@ -118,6 +223,16 @@ export async function resolveUserAccess(
     appConfigured,
     role: isAdmin ? 'admin' : hasAppAccess ? 'user' : null,
   };
+
+  if (uid) {
+    if (status.hasAppAccess) {
+      writeAuthCache(appId, uid, email, status);
+    } else {
+      clearAuthCache(appId);
+    }
+  }
+
+  return status;
 }
 
 export async function seedInitialGlobalWhitelistIfEmpty(db: Firestore): Promise<boolean> {

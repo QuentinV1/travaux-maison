@@ -39,6 +39,12 @@ import { PhotosGallery } from './components/PhotosGallery';
 import { AISettingsModal } from './components/AISettingsModal';
 import { WebCatalogModal } from './components/WebCatalogModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
+import { AuthGateScreen } from './components/AuthGateScreen';
+import {
+  clearAuthCache,
+  resolveUserAccess,
+  type AccessStatus,
+} from './utils/accessControl';
 import { hasGeminiKey, loadAppSettings, saveAppSettings } from './utils/settings';
 import { useEscapeKey } from './utils/useEscapeKey';
 import type { ExtractedWebProduct, SuggestedDecoItem } from './utils/aiService';
@@ -46,9 +52,11 @@ import {
   cloudState as globalCloudState,
   ensureRemoteWorkspace,
   formatFirestoreError,
+  getFirestoreDb,
   LAST_UID_KEY,
   reinitialiserEtatCloud,
   saveUserSettingsToFirestore,
+  signOutFirebase,
   stopAllFirestoreListeners,
   subscribeAuth,
   subscribeCloudState,
@@ -83,6 +91,9 @@ export function App() {
   const [showWebCatalogFrom3D, setShowWebCatalogFrom3D] = useState(false);
   const [aiReady, setAiReady] = useState(() => hasGeminiKey());
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
+  const [accessStatus, setAccessStatus] = useState<AccessStatus | null>(null);
+  const [accessChecking, setAccessChecking] = useState(false);
   const [cloudSyncState, setCloudSyncState] = useState<CloudSyncState>(() => ({
     ...globalCloudState,
   }));
@@ -104,10 +115,31 @@ export function App() {
     setReady(true);
   }, []);
 
-  useEffect(() => {
-    const unsub = subscribeAuth((user) => {
-      setFirebaseUser(user);
-      if (!user) {
+  const verifyUserAccess = useCallback(async (user: User | null) => {
+    if (!user) {
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
+      stopAllFirestoreListeners();
+      reinitialiserEtatCloud();
+      clearAuthCache('travaux-maison');
+      setAccessStatus(null);
+      setAccessChecking(false);
+      setAuthResolved(true);
+      return;
+    }
+
+    setAccessChecking(true);
+    try {
+      const status = await resolveUserAccess(
+        getFirestoreDb(),
+        'travaux-maison',
+        user.email,
+        user.uid
+      );
+      setAccessStatus(status);
+      if (!status.hasAppAccess) {
         if (syncTimerRef.current) {
           clearTimeout(syncTimerRef.current);
           syncTimerRef.current = null;
@@ -115,9 +147,30 @@ export function App() {
         stopAllFirestoreListeners();
         reinitialiserEtatCloud();
       }
+    } finally {
+      setAccessChecking(false);
+      setAuthResolved(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeAuth((user) => {
+      setFirebaseUser(user);
+      void verifyUserAccess(user);
     });
     return () => unsub();
-  }, []);
+  }, [verifyUserAccess]);
+
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const handleOnline = () => {
+      void verifyUserAccess(firebaseUser);
+    };
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [firebaseUser, verifyUserAccess]);
 
   const houses = useLiveQuery(() => db.houses.toArray(), [], [] as House[]);
 
@@ -207,7 +260,7 @@ export function App() {
 
   // Auto-init default syncConfig for activeHouse when user logs in (unless explicitly disabled)
   useEffect(() => {
-    if (!firebaseUser || !activeHouse) return;
+    if (!firebaseUser || !accessStatus?.hasAppAccess || !activeHouse) return;
     let cancelled = false;
     db.houseSyncConfigs.get(activeHouse.id).then((existing) => {
       if (cancelled || existing) return;
@@ -220,9 +273,12 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [firebaseUser, activeHouse]);
+  }, [firebaseUser, accessStatus?.hasAppAccess, activeHouse]);
 
-  const remoteWorkspaceId = firebaseUser && syncConfig?.enabled ? syncConfig.workspaceId : null;
+  const remoteWorkspaceId =
+    firebaseUser && accessStatus?.hasAppAccess && syncConfig?.enabled
+      ? syncConfig.workspaceId
+      : null;
 
   const pushCurrentHouseToFirestore = useCallback(
     async (houseId: string, workspaceId: string) => {
@@ -858,11 +914,22 @@ export function App() {
     });
   };
 
-  if (!ready) {
+  if (!ready || !authResolved || (!accessStatus && accessChecking)) {
+    return <AuthGateScreen mode="loading" onSignOut={signOutFirebase} />;
+  }
+
+  if (!firebaseUser) {
+    return <AuthGateScreen mode="unauthenticated" onSignOut={signOutFirebase} />;
+  }
+
+  if (!accessStatus?.hasAppAccess) {
     return (
-      <div className="h-full flex items-center justify-center bg-slate-50 text-slate-600">
-        Chargement de votre espace maison...
-      </div>
+      <AuthGateScreen
+        mode="unauthorized"
+        userEmail={firebaseUser.email}
+        onSignOut={signOutFirebase}
+        onRetryAccess={() => verifyUserAccess(firebaseUser)}
+      />
     );
   }
 
