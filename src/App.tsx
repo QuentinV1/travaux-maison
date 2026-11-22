@@ -17,7 +17,11 @@ import {
   Trash2,
   AlertTriangle,
   Sparkles,
+  ChevronDown,
+  Settings,
+  Check,
 } from 'lucide-react';
+import { getMaintenanceUrgency } from './utils/maintenance';
 import { db, uid } from './db';
 import type {
   AppTab,
@@ -92,6 +96,10 @@ export function App() {
   const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showWebCatalogFrom3D, setShowWebCatalogFrom3D] = useState(false);
+  const [showHouseMenu, setShowHouseMenu] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const houseMenuRef = useRef<HTMLDivElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
   const [aiReady, setAiReady] = useState(() => hasGeminiKey());
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
@@ -109,6 +117,23 @@ export function App() {
 
   useEscapeKey(showNewHouseModal, () => setShowNewHouseModal(false));
   useEscapeKey(showDeleteHouseModal, () => setShowDeleteHouseModal(false));
+  useEscapeKey(showHouseMenu, () => setShowHouseMenu(false));
+  useEscapeKey(showSettingsMenu, () => setShowSettingsMenu(false));
+
+  useEffect(() => {
+    if (!showHouseMenu && !showSettingsMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (showHouseMenu && houseMenuRef.current && !houseMenuRef.current.contains(target)) {
+        setShowHouseMenu(false);
+      }
+      if (showSettingsMenu && settingsMenuRef.current && !settingsMenuRef.current.contains(target)) {
+        setShowSettingsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showHouseMenu, showSettingsMenu]);
 
   useEffect(() => {
     return subscribeCloudState((st) => setCloudSyncState(st));
@@ -947,90 +972,185 @@ export function App() {
     ? (firebaseUser.email || firebaseUser.displayName || 'Cloud').split('@')[0]
     : 'Connexion';
 
+  const overdueMaintenanceCount = maintenanceEquipments.filter(
+    (eq) => getMaintenanceUrgency(eq.nextServiceDate) === 'overdue'
+  ).length;
+  const openTasksCount = tasks.filter((t) => t.status !== 'done').length;
+
+  const navItems: Array<{
+    id: AppTab;
+    label: string;
+    shortLabel: string;
+    icon: React.ReactNode;
+    badge?: number;
+    badgeTone?: 'danger' | 'neutral';
+  }> = [
+    { id: 'plan', label: 'Plan 2D', shortLabel: 'Plan 2D', icon: <Map className="w-4 h-4" /> },
+    { id: '3d', label: 'Vue 3D', shortLabel: 'Vue 3D', icon: <Box className="w-4 h-4" /> },
+    {
+      id: 'tasks',
+      label: 'Travaux & Courses',
+      shortLabel: 'Travaux',
+      icon: <CheckSquare className="w-4 h-4" />,
+      badge: openTasksCount > 0 ? openTasksCount : undefined,
+      badgeTone: 'neutral',
+    },
+    {
+      id: 'maintenance',
+      label: 'Entretien',
+      shortLabel: 'Entretien',
+      icon: <Wrench className="w-4 h-4" />,
+      badge: overdueMaintenanceCount > 0 ? overdueMaintenanceCount : undefined,
+      badgeTone: 'danger',
+    },
+    { id: 'photos', label: 'Photos', shortLabel: 'Photos', icon: <Camera className="w-4 h-4" /> },
+  ];
+
   return (
     <div className="h-full flex flex-col bg-slate-50">
-      {/* Top Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 no-print">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0 max-w-full">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-xs shrink-0">
-            <Home className="w-5 h-5" />
-          </div>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <select
-              value={activeHouseId}
-              onChange={(e) => setActiveHouseId(e.target.value)}
-              className="px-2.5 sm:px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 min-h-[42px] max-w-[175px] sm:max-w-[200px] min-w-0 truncate"
-            >
-              {houses.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
-            <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500">
-              v{APP_VERSION}
-            </span>
-            <button
-              onClick={() => setShowNewHouseModal(true)}
-              className="p-2.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 min-h-[42px] min-w-[42px] flex items-center justify-center transition-colors"
-              title="Créer une nouvelle maison"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setShowDeleteHouseModal(true)}
-              disabled={!activeHouse}
-              className="p-2.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 min-h-[42px] min-w-[42px] flex items-center justify-center transition-colors disabled:opacity-40"
-              title={activeHouse ? `Supprimer la maison "${activeHouse.name}"` : 'Supprimer'}
-            >
-              <Trash2 className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Main View Tabs */}
-        <nav className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 max-w-full overflow-x-auto scrollbar-none">
-          <NavTab active={activeTab === 'plan'} onClick={() => setActiveTab('plan')} icon={<Map className="w-4 h-4" />} label="Plan 2D" />
-          <NavTab active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<CheckSquare className="w-4 h-4" />} label="Tâches & Courses" />
-          <NavTab active={activeTab === 'maintenance'} onClick={() => setActiveTab('maintenance')} icon={<Wrench className="w-4 h-4" />} label="Entretien" />
-          <NavTab active={activeTab === 'photos'} onClick={() => setActiveTab('photos')} icon={<Camera className="w-4 h-4" />} label="Photos" />
-          <NavTab active={activeTab === '3d'} onClick={() => setActiveTab('3d')} icon={<Box className="w-4 h-4" />} label="Vue 3D" />
-        </nav>
-
-        {/* Backup, Cloud Sync & AI Settings Actions */}
-        <div className="flex flex-wrap items-center gap-1.5 max-w-full">
+      {/* Top Navigation Bar — Single clean row */}
+      <header className="bg-white border-b border-slate-200/90 px-3 sm:px-5 h-14 flex items-center justify-between gap-2 shrink-0 z-30 no-print">
+        {/* Left: Brand & House Switcher Popover */}
+        <div className="relative flex items-center gap-2 min-w-0" ref={houseMenuRef}>
           <button
             type="button"
-            onClick={() => setShowFeedbackModal(true)}
-            title="Envoyer un feedback (évolution ou bug)"
-            aria-label="Envoyer un feedback"
-            className="px-3 py-2 rounded-xl text-xs font-semibold border bg-white border-slate-200 text-slate-700 hover:bg-slate-100 flex items-center gap-1.5 min-h-[40px] transition-colors"
+            onClick={() => {
+              setShowHouseMenu((v) => !v);
+              setShowSettingsMenu(false);
+            }}
+            aria-expanded={showHouseMenu}
+            aria-haspopup="menu"
+            className="flex items-center gap-2 pl-1.5 pr-2.5 py-1.5 rounded-xl hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-colors min-h-[40px] max-w-[210px] sm:max-w-[260px]"
+            title="Changer ou gérer la maison"
           >
-            <MessageSquarePlus className="w-4 h-4 text-sky-600" />
-            <span className="hidden sm:inline">Feedback</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Home className="w-4 h-4" />
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-sm font-bold text-slate-900 truncate leading-tight">
+                {activeHouse?.name ?? 'MaMaison'}
+              </div>
+              {activeHouse?.address && (
+                <div className="text-[11px] text-slate-500 truncate leading-tight hidden sm:block">
+                  {activeHouse.address}
+                </div>
+              )}
+            </div>
+            <ChevronDown
+              className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+                showHouseMenu ? 'rotate-180' : ''
+              }`}
+            />
           </button>
+
+          {showHouseMenu && (
+            <div
+              role="menu"
+              className="absolute top-full left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl py-1.5 z-50"
+            >
+              <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Mes maisons
+              </div>
+              <div className="max-h-56 overflow-y-auto px-1.5 space-y-0.5">
+                {houses.map((h) => {
+                  const isActive = h.id === activeHouseId;
+                  return (
+                    <button
+                      key={h.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActiveHouseId(h.id);
+                        setShowHouseMenu(false);
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl text-left text-sm flex items-center justify-between gap-2 transition-colors ${
+                        isActive
+                          ? 'bg-slate-900 text-white font-semibold'
+                          : 'text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="truncate">{h.name}</span>
+                      {isActive && <Check className="w-4 h-4 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="my-1.5 border-t border-slate-100" />
+              <div className="px-1.5 space-y-0.5">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowHouseMenu(false);
+                    setShowNewHouseModal(true);
+                  }}
+                  className="w-full px-2.5 py-2 rounded-xl text-left text-sm font-medium text-indigo-700 hover:bg-indigo-50 flex items-center gap-2 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nouvelle maison
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!activeHouse}
+                  onClick={() => {
+                    setShowHouseMenu(false);
+                    setShowDeleteHouseModal(true);
+                  }}
+                  className="w-full px-2.5 py-2 rounded-xl text-left text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-40 flex items-center gap-2 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Supprimer « {activeHouse?.name ?? 'maison'} »
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Center: Desktop Primary Navigation */}
+        <nav
+          aria-label="Navigation principale"
+          className="hidden md:flex items-center gap-1 bg-slate-100/90 p-1 rounded-2xl border border-slate-200/80"
+        >
+          {navItems.map((item) => (
+            <NavTab
+              key={item.id}
+              active={activeTab === item.id}
+              onClick={() => setActiveTab(item.id)}
+              icon={item.icon}
+              label={item.shortLabel}
+              fullLabel={item.label}
+              badge={item.badge}
+              badgeTone={item.badgeTone}
+            />
+          ))}
+        </nav>
+
+        {/* Right: Cloud Status + Unified Settings Menu */}
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             id="btn-auth-header"
+            type="button"
             onClick={() => setShowCloudSyncModal(true)}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[40px] transition-colors ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[38px] transition-colors ${
               firebaseUser
-                ? 'bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100'
+                ? 'bg-sky-50/80 border-sky-200 text-sky-900 hover:bg-sky-100'
                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
             }`}
             title={
               firebaseUser
-                ? `Connecté : ${firebaseUser.email || firebaseUser.uid}`
+                ? `Cloud connecté : ${firebaseUser.email || firebaseUser.uid}`
                 : 'Se connecter au Cloud'
             }
           >
             {firebaseUser ? (
-              <UserIcon className="w-4 h-4 text-sky-600" />
+              <UserIcon className="w-3.5 h-3.5 text-sky-600 shrink-0" />
             ) : (
-              <Cloud className="w-4 h-4 text-sky-600" />
+              <Cloud className="w-3.5 h-3.5 text-sky-600 shrink-0" />
             )}
-            <span className="max-w-[110px] truncate">{authHeaderLabel}</span>
+            <span className="max-w-[90px] truncate hidden sm:inline">{authHeaderLabel}</span>
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-2 h-2 rounded-full shrink-0 ${
                 !firebaseUser
                   ? 'bg-slate-300'
                   : cloudSyncState.syncStatus === 'error'
@@ -1043,37 +1163,122 @@ export function App() {
               }`}
             />
           </button>
-          <button
-            onClick={() => setShowAISettingsModal(true)}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[40px] transition-colors ${
-              aiReady
-                ? 'bg-violet-50 border-violet-200 text-violet-800 hover:bg-violet-100'
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-            }`}
-            title="Configurer la clé API Google Gemini (100% gratuite) pour les fonctions IA V3"
-          >
-            <Sparkles className="w-4 h-4 text-violet-600" />
-            <span className="hidden md:inline">IA V3</span>
-            <span
-              className={`w-2 h-2 rounded-full ${aiReady ? 'bg-emerald-500' : 'bg-slate-300'}`}
-            />
-          </button>
-          <button
-            onClick={handleExportBackup}
-            className="px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 min-h-[40px]"
-            title="Sauvegarder toutes les données en local (JSON)"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden md:inline">Sauvegarder</span>
-          </button>
-          <button
-            onClick={() => importInputRef.current?.click()}
-            className="px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 min-h-[40px]"
-            title="Restaurer une sauvegarde JSON"
-          >
-            <Upload className="w-4 h-4" />
-            <span className="hidden md:inline">Restaurer</span>
-          </button>
+
+          <div className="relative" ref={settingsMenuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowSettingsMenu((v) => !v);
+                setShowHouseMenu(false);
+              }}
+              aria-expanded={showSettingsMenu}
+              aria-haspopup="menu"
+              aria-label="Paramètres, IA et sauvegardes"
+              title="Paramètres, IA et sauvegardes"
+              className={`p-2 rounded-xl border min-h-[38px] min-w-[38px] flex items-center justify-center transition-colors relative ${
+                showSettingsMenu
+                  ? 'bg-slate-900 border-slate-900 text-white'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              {aiReady && (
+                <span
+                  className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-violet-500"
+                  aria-hidden="true"
+                />
+              )}
+            </button>
+
+            {showSettingsMenu && (
+              <div
+                role="menu"
+                className="absolute top-full right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl py-1.5 z-50"
+              >
+                <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Options & Outils
+                </div>
+                <div className="px-1.5 space-y-0.5">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowSettingsMenu(false);
+                      setShowAISettingsModal(true);
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl text-left text-sm text-slate-700 hover:bg-violet-50 hover:text-violet-900 flex items-center justify-between gap-2 transition-colors"
+                  >
+                    <span className="flex items-center gap-2 font-medium">
+                      <Sparkles className="w-4 h-4 text-violet-600" />
+                      Assistant IA (Gemini)
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        aiReady
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {aiReady ? 'Actif' : 'Off'}
+                    </span>
+                  </button>
+                </div>
+
+                <div className="my-1.5 border-t border-slate-100" />
+                <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Sauvegarde locale
+                </div>
+                <div className="px-1.5 space-y-0.5">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowSettingsMenu(false);
+                      void handleExportBackup();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2 font-medium transition-colors"
+                  >
+                    <Download className="w-4 h-4 text-slate-500" />
+                    Exporter en JSON
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowSettingsMenu(false);
+                      importInputRef.current?.click();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2 font-medium transition-colors"
+                  >
+                    <Upload className="w-4 h-4 text-slate-500" />
+                    Restaurer un fichier JSON
+                  </button>
+                </div>
+
+                <div className="my-1.5 border-t border-slate-100" />
+                <div className="px-1.5 space-y-0.5">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowSettingsMenu(false);
+                      setShowFeedbackModal(true);
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2 font-medium transition-colors"
+                  >
+                    <MessageSquarePlus className="w-4 h-4 text-sky-600" />
+                    Envoyer un feedback
+                  </button>
+                </div>
+
+                <div className="mt-1.5 pt-1.5 border-t border-slate-100 px-3 flex items-center justify-between text-[11px] text-slate-400">
+                  <span>MaMaison</span>
+                  <span>v{APP_VERSION}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <input
             ref={importInputRef}
             type="file"
@@ -1264,6 +1469,43 @@ export function App() {
         )}
       </main>
 
+      {/* Mobile Bottom Navigation Bar */}
+      <nav
+        aria-label="Navigation mobile"
+        className="md:hidden bg-white border-t border-slate-200 px-1.5 pt-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] grid grid-cols-5 gap-1 shrink-0 z-30 no-print"
+      >
+        {navItems.map((item) => {
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveTab(item.id)}
+              aria-current={isActive ? 'page' : undefined}
+              className={`relative flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-semibold transition-colors min-h-[48px] ${
+                isActive ? 'text-slate-900 bg-slate-100' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <span className="relative">
+                {item.icon}
+                {item.badge !== undefined && (
+                  <span
+                    className={`absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold flex items-center justify-center ${
+                      item.badgeTone === 'danger'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
+              </span>
+              <span className="truncate max-w-full">{item.shortLabel}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       {/* Delete House Confirmation Modal */}
       {showDeleteHouseModal && activeHouse && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
@@ -1415,17 +1657,37 @@ const NavTab: React.FC<{
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
-}> = ({ active, onClick, icon, label }) => (
+  fullLabel?: string;
+  badge?: number;
+  badgeTone?: 'danger' | 'neutral';
+}> = ({ active, onClick, icon, label, fullLabel, badge, badgeTone = 'neutral' }) => (
   <button
+    type="button"
     onClick={onClick}
-    aria-label={label}
-    title={label}
-    className={`px-3.5 py-2 rounded-xl text-sm font-medium flex items-center gap-2 min-h-[40px] shrink-0 transition-colors ${
-      active ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+    aria-label={fullLabel ?? label}
+    aria-current={active ? 'page' : undefined}
+    title={fullLabel ?? label}
+    className={`px-3 py-1.5 rounded-xl text-xs lg:text-sm font-semibold flex items-center gap-1.5 min-h-[36px] shrink-0 transition-all ${
+      active
+        ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-200/80'
+        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
     }`}
   >
     {icon}
-    <span className="hidden sm:inline">{label}</span>
+    <span>{label}</span>
+    {badge !== undefined && (
+      <span
+        className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
+          badgeTone === 'danger'
+            ? 'bg-rose-600 text-white'
+            : active
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-200/90 text-slate-700'
+        }`}
+      >
+        {badge > 99 ? '99+' : badge}
+      </span>
+    )}
   </button>
 );
 

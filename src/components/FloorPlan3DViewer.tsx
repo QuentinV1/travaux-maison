@@ -27,7 +27,7 @@ import {
   Eye,
   Upload,
   Trash2,
-  Camera,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type {
   ArchShape,
@@ -124,6 +124,8 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
   const [realisticMode, setRealisticMode] = useState<boolean>(false);
   const [wallApplyScope, setWallApplyScope] = useState<'face' | 'both' | 'room'>('face');
   const [showStudioModal, setShowStudioModal] = useState<boolean>(false);
+  const [showSceneMenu, setShowSceneMenu] = useState<boolean>(false);
+  const sceneMenuRef = useRef<HTMLDivElement>(null);
   const [cuttingFurnitureImg, setCuttingFurnitureImg] = useState<boolean>(false);
   const [activeRenderViewer, setActiveRenderViewer] = useState<{
     url: string;
@@ -132,6 +134,18 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
   } | null>(null);
 
   useEscapeKey(activeRenderViewer !== null, () => setActiveRenderViewer(null));
+  useEscapeKey(showSceneMenu, () => setShowSceneMenu(false));
+
+  useEffect(() => {
+    if (!showSceneMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sceneMenuRef.current && !sceneMenuRef.current.contains(e.target as Node)) {
+        setShowSceneMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSceneMenu]);
 
   const lastFramedKeyRef = useRef<string>('');
   const pmremTargetRef = useRef<THREE.WebGLRenderTarget | null>(null);
@@ -914,187 +928,242 @@ export const FloorPlan3DViewer: React.FC<FloorPlan3DViewerProps> = ({
           )}
         </div>
 
-        {/* Top Right: Camera Presets, FPS Mode & Scene Toggles */}
-        <div className="flex flex-col gap-2 pointer-events-none items-end self-end sm:self-auto shrink-0 max-w-full">
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm max-w-full">
-          <button
-            onClick={() => applyCameraPreset('iso')}
-            title="Vue 3D isométrique"
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1 ${
-              navMode === 'orbit' ? 'text-slate-800 hover:bg-slate-100' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Orbite</span>
-          </button>
-          <button
-            onClick={() => applyCameraPreset('top')}
-            title="Vue de dessus"
-            className="px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-1"
-          >
-            <Compass className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Dessus</span>
-          </button>
-          <button
-            onClick={() => (navMode === 'fps' ? applyCameraPreset('iso') : enterFpsInRoom())}
-            title="Visite virtuelle à la 1ère personne (ZQSD / Tactile)"
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors ${
-              navMode === 'fps'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            <Footprints className="w-3.5 h-3.5" />
-            <span>Visite FPS</span>
-          </button>
-        </div>
-
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm max-w-full">
-          {onUpdateFloor && (
+        {/* Top Right: Clean Camera + Creative Actions + Scene Settings Popover */}
+        <div className="flex flex-wrap items-center justify-end gap-1.5 pointer-events-none self-end sm:self-auto shrink-0 max-w-full">
+          {/* Camera Controls */}
+          <div className="pointer-events-auto flex items-center gap-0.5 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm">
             <button
-              onClick={() => setCustomizeMode((v) => !v)}
-              title="Mode Personnalisation au clic (murs, sols, plafonds, meubles)"
+              type="button"
+              onClick={() => applyCameraPreset('iso')}
+              title="Vue 3D isométrique"
               className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors ${
-                customizeMode
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-700 hover:bg-slate-100'
+                navMode === 'orbit' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              <Palette className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Personnaliser</span>
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Orbite</span>
             </button>
-          )}
-          <button
-            onClick={() => setRealisticMode((v) => !v)}
-            title="Activer le rendu réel PBR (lumières pièces, ombres douces, textures détaillées)"
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors ${
-              realisticMode
-                ? 'bg-amber-500 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Rendu Réel</span>
-          </button>
-          {onOpenWebCatalog && (
             <button
-              onClick={onOpenWebCatalog}
-              title="Importer un article web (Darty, Poltronesofà, Truffaut...) dans la scène 3D"
-              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1"
+              type="button"
+              onClick={() => applyCameraPreset('top')}
+              title="Vue de dessus"
+              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 flex items-center gap-1 transition-colors"
             >
-              <ShoppingBag className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">Web → 3D</span>
+              <Compass className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Dessus</span>
             </button>
-          )}
-          {activeFloor && onUpdateFloor && (
-            <>
+            <button
+              type="button"
+              onClick={() => (navMode === 'fps' ? applyCameraPreset('iso') : enterFpsInRoom())}
+              title="Visite virtuelle à la 1ère personne (ZQSD / Tactile)"
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors ${
+                navMode === 'fps'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Footprints className="w-3.5 h-3.5" />
+              <span>Visite</span>
+            </button>
+          </div>
+
+          {/* Creative Actions */}
+          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-1 shadow-sm">
+            {onUpdateFloor && (
               <button
-                onClick={() => setShowStudioModal(true)}
-                title="Prendre une photo de cette vue 3D et générer un rendu IA photoréaliste"
-                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1 shadow-xs"
+                type="button"
+                onClick={() => setCustomizeMode((v) => !v)}
+                title="Mode Personnalisation au clic (murs, sols, plafonds, meubles)"
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  customizeMode
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
               >
-                <Camera className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Photo IA</span>
+                <Palette className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Personnaliser</span>
               </button>
+            )}
+            {onOpenWebCatalog && (
               <button
+                type="button"
+                onClick={onOpenWebCatalog}
+                title="Importer un article web (Darty, Poltronesofà, Truffaut...) dans la scène 3D"
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1 transition-colors"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">Web → 3D</span>
+              </button>
+            )}
+            {activeFloor && onUpdateFloor && (
+              <button
+                type="button"
                 onClick={() => setShowStudioModal(true)}
-                title="Studio IA, Rendu photo, Export .GLB/.OBJ, Google Flow & Ré-import 360°"
-                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1 shadow-xs"
+                title="Studio IA, Photo photoréaliste, Export .GLB/.OBJ & 360°"
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1 shadow-xs transition-colors"
               >
                 <Wand2 className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Studio IA / Export</span>
+                <span className="hidden sm:inline">Studio IA</span>
               </button>
-            </>
-          )}
-
-          <div className="w-px h-5 bg-slate-200 mx-0.5" />
-
-          <button
-            onClick={() => setShowFurniture((v) => !v)}
-            title="Afficher / masquer les meubles"
-            className={`p-2 rounded-xl transition-colors ${
-              showFurniture ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            <Sofa className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowCeiling((v) => !v)}
-            title="Afficher / masquer les plafonds"
-            className={`p-2 rounded-xl transition-colors ${
-              showCeiling ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            <Home className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setClipEnabled((v) => !v)}
-            title="Coupe verticale (Maison de poupée)"
-            className={`p-2 rounded-xl transition-colors ${
-              clipEnabled ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            <Scissors className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowGrid((v) => !v)}
-            title="Afficher / masquer la grille"
-            className={`p-2 rounded-xl transition-colors ${
-              showGrid ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            <Grid className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setLighting((m) => (m === 'day' ? 'evening' : 'day'))}
-            title={lighting === 'day' ? 'Passer en mode soirée' : 'Passer en mode jour'}
-            className={`p-2 rounded-xl transition-colors ${
-              lighting === 'evening' ? 'bg-amber-50 text-amber-600' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            {lighting === 'day' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-        </div>
-
-        {/* Sliders: Coupe verticale & Heure du soleil */}
-        {(clipEnabled || lighting === 'day') && (
-          <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-2.5 shadow-sm space-y-2 w-48">
-            {lighting === 'day' && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] font-medium text-slate-700">
-                  <span>Soleil</span>
-                  <span>{sunHour}h00</span>
-                </div>
-                <input
-                  type="range"
-                  min={8}
-                  max={20}
-                  step={1}
-                  value={sunHour}
-                  onChange={(e) => setSunHour(Number(e.target.value))}
-                  className="w-full accent-amber-500 h-1.5"
-                />
-              </div>
             )}
-            {clipEnabled && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] font-medium text-slate-700">
-                  <span>Hauteur coupe</span>
-                  <span>{clipHeightM.toFixed(2)} m</span>
+          </div>
+
+          {/* Scene & Lighting Settings Popover */}
+          <div className="relative pointer-events-auto" ref={sceneMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowSceneMenu((v) => !v)}
+              aria-expanded={showSceneMenu}
+              title="Réglages scène, lumière, soleil, coupe et visibilité"
+              className={`px-2.5 py-2 rounded-2xl text-xs font-semibold border shadow-sm flex items-center gap-1.5 transition-colors ${
+                showSceneMenu
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white/95 backdrop-blur-md text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              <span className="hidden sm:inline">Scène</span>
+              {(realisticMode || clipEnabled || lighting === 'evening') && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              )}
+            </button>
+
+            {showSceneMenu && (
+              <div className="absolute top-full right-0 mt-1.5 w-68 bg-white/98 backdrop-blur-md border border-slate-200 rounded-2xl shadow-xl p-3.5 space-y-3.5 z-50 text-xs">
+                {/* Rendering & Lighting */}
+                <div className="space-y-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Rendu & Éclairage
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setRealisticMode((v) => !v)}
+                      className={`px-2.5 py-2 rounded-xl font-semibold flex items-center justify-center gap-1.5 border transition-colors ${
+                        realisticMode
+                          ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Rendu Réel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLighting((m) => (m === 'day' ? 'evening' : 'day'))}
+                      className={`px-2.5 py-2 rounded-xl font-semibold flex items-center justify-center gap-1.5 border transition-colors ${
+                        lighting === 'evening'
+                          ? 'bg-slate-900 text-amber-300 border-slate-900'
+                          : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      {lighting === 'day' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                      {lighting === 'day' ? 'Jour' : 'Soirée'}
+                    </button>
+                  </div>
+
+                  {lighting === 'day' && (
+                    <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200/70 space-y-1">
+                      <div className="flex justify-between text-[11px] font-semibold text-slate-700">
+                        <span>Heure du soleil</span>
+                        <span className="text-amber-700">{sunHour}h00</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={8}
+                        max={20}
+                        step={1}
+                        value={sunHour}
+                        onChange={(e) => setSunHour(Number(e.target.value))}
+                        className="w-full accent-amber-500 h-1.5"
+                      />
+                    </div>
+                  )}
                 </div>
-                <input
-                  type="range"
-                  min={0.4}
-                  max={3.2}
-                  step={0.1}
-                  value={clipHeightM}
-                  onChange={(e) => setClipHeightM(Number(e.target.value))}
-                  className="w-full accent-indigo-600 h-1.5"
-                />
+
+                {/* Vertical Cut */}
+                <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setClipEnabled((v) => !v)}
+                    className={`w-full px-2.5 py-2 rounded-xl font-semibold flex items-center justify-between border transition-colors ${
+                      clipEnabled
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-300'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Scissors className="w-3.5 h-3.5" />
+                      Coupe verticale
+                    </span>
+                    <span className="text-[11px]">{clipEnabled ? 'Actif' : 'Off'}</span>
+                  </button>
+                  {clipEnabled && (
+                    <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200/70 space-y-1">
+                      <div className="flex justify-between text-[11px] font-semibold text-slate-700">
+                        <span>Hauteur de coupe</span>
+                        <span className="text-indigo-700">{clipHeightM.toFixed(2)} m</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.4}
+                        max={3.2}
+                        step={0.1}
+                        value={clipHeightM}
+                        onChange={(e) => setClipHeightM(Number(e.target.value))}
+                        className="w-full accent-indigo-600 h-1.5"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Visibility Toggles */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Afficher dans la scène
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowFurniture((v) => !v)}
+                      className={`py-2 px-1.5 rounded-xl text-[11px] font-semibold flex flex-col items-center gap-1 border transition-colors ${
+                        showFurniture
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Sofa className="w-4 h-4" />
+                      Meubles
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCeiling((v) => !v)}
+                      className={`py-2 px-1.5 rounded-xl text-[11px] font-semibold flex flex-col items-center gap-1 border transition-colors ${
+                        showCeiling
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Home className="w-4 h-4" />
+                      Plafonds
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowGrid((v) => !v)}
+                      className={`py-2 px-1.5 rounded-xl text-[11px] font-semibold flex flex-col items-center gap-1 border transition-colors ${
+                        showGrid
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Grid className="w-4 h-4" />
+                      Grille
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
-        )}
         </div>
       </div>
 

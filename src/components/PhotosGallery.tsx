@@ -48,6 +48,8 @@ export const PhotosGallery: React.FC<PhotosGalleryProps> = ({
   }, [floors]);
 
   const [selectedRoomFilter, setSelectedRoomFilter] = useState<string>('all');
+  const [selectedPhaseFilter, setSelectedPhaseFilter] = useState<'all' | PhotoPhase>('all');
+  const [showUploadPanel, setShowUploadPanel] = useState<boolean>(photos.length === 0);
   const [uploadRoom, setUploadRoom] = useState<string>(roomOptions[0]?.roomName ?? 'Général');
   const [uploadPhase, setUploadPhase] = useState<PhotoPhase>('before');
   const [uploadCaption, setUploadCaption] = useState('');
@@ -60,8 +62,9 @@ export const PhotosGallery: React.FC<PhotosGalleryProps> = ({
   const filteredPhotos = useMemo(() => {
     return photos
       .filter((p) => (selectedRoomFilter === 'all' ? true : p.roomName === selectedRoomFilter))
+      .filter((p) => (selectedPhaseFilter === 'all' ? true : p.phase === selectedPhaseFilter))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [photos, selectedRoomFilter]);
+  }, [photos, selectedRoomFilter, selectedPhaseFilter]);
 
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -91,94 +94,139 @@ export const PhotosGallery: React.FC<PhotosGalleryProps> = ({
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50 p-4 sm:p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* Upload Bar */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <Camera className="w-5 h-5 text-slate-700" /> Photos par pièce
-            </h2>
-            <span className="text-xs text-slate-500">Compression WebP automatique (100 % local)</span>
+      <div className="max-w-5xl mx-auto space-y-5">
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <Camera className="w-5 h-5 text-slate-700" />
+              Photos & Home Staging IA
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {photos.length} photo{photos.length > 1 ? 's' : ''} enregistrée{photos.length > 1 ? 's' : ''} · Compression WebP locale
+            </p>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-            <select
-              value={uploadRoom}
-              onChange={(e) => setUploadRoom(e.target.value)}
-              className="px-3 py-2.5 border border-slate-300 rounded-xl text-sm bg-white"
-            >
-              {roomOptions.map((r, i) => (
-                <option key={`${r.floorId}-${r.roomName}-${i}`} value={r.roomName}>
-                  {r.roomName}
-                </option>
-              ))}
-              <option value="Extérieur">Extérieur</option>
-              <option value="Général">Général</option>
-            </select>
-
-            <select
-              value={uploadPhase}
-              onChange={(e) => setUploadPhase(e.target.value as PhotoPhase)}
-              className="px-3 py-2.5 border border-slate-300 rounded-xl text-sm bg-white"
-            >
-              <option value="before">Avant travaux</option>
-              <option value="during">Pendant travaux</option>
-              <option value="after">Après travaux</option>
-            </select>
-
-            <input
-              type="text"
-              maxLength={140}
-              placeholder="Légende (optionnel)"
-              value={uploadCaption}
-              onChange={(e) => setUploadCaption(e.target.value)}
-              className="px-3 py-2.5 border border-slate-300 rounded-xl text-sm"
-            />
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isCompressing}
-              className="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 flex items-center justify-center gap-2 min-h-[44px]"
-            >
-              <Plus className="w-4 h-4" />
-              {isCompressing ? 'Compression...' : 'Ajouter photo(s)'}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => handleFilesSelected(e.target.files)}
-            />
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowUploadPanel((v) => !v)}
+            className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1.5 min-h-[42px] shadow-xs self-start sm:self-auto transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            {showUploadPanel ? 'Masquer l’ajout' : 'Ajouter des photos'}
+          </button>
         </div>
 
-        {/* Room Filter Pills */}
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <button
-            onClick={() => setSelectedRoomFilter('all')}
-            className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap ${
-              selectedRoomFilter === 'all'
-                ? 'bg-slate-900 text-white'
-                : 'bg-white border border-slate-200 text-slate-700'
-            }`}
-          >
-            Toutes les pièces ({photos.length})
-          </button>
-          {Array.from(new Set(photos.map((p) => p.roomName))).map((rm) => (
+        {/* Collapsible Upload Bar */}
+        {showUploadPanel && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+              <select
+                value={uploadRoom}
+                onChange={(e) => setUploadRoom(e.target.value)}
+                className="px-3 py-2.5 border border-slate-300 rounded-xl text-sm bg-white"
+              >
+                {roomOptions.map((r, i) => (
+                  <option key={`${r.floorId}-${r.roomName}-${i}`} value={r.roomName}>
+                    {r.roomName}
+                  </option>
+                ))}
+                <option value="Extérieur">Extérieur</option>
+                <option value="Général">Général</option>
+              </select>
+
+              <select
+                value={uploadPhase}
+                onChange={(e) => setUploadPhase(e.target.value as PhotoPhase)}
+                className="px-3 py-2.5 border border-slate-300 rounded-xl text-sm bg-white"
+              >
+                <option value="before">Avant travaux</option>
+                <option value="during">Pendant travaux</option>
+                <option value="after">Après travaux</option>
+              </select>
+
+              <input
+                type="text"
+                maxLength={140}
+                placeholder="Légende (optionnel)"
+                value={uploadCaption}
+                onChange={(e) => setUploadCaption(e.target.value)}
+                className="px-3 py-2.5 border border-slate-300 rounded-xl text-sm"
+              />
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isCompressing}
+                className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 flex items-center justify-center gap-2 min-h-[44px] transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                {isCompressing ? 'Compression...' : 'Choisir fichier(s)'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => handleFilesSelected(e.target.files)}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Filters Row: Phase + Room */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-2xl overflow-x-auto scrollbar-none">
+            {(
+              [
+                ['all', 'Toutes'],
+                ['before', 'Avant'],
+                ['during', 'Pendant'],
+                ['after', 'Après'],
+              ] as const
+            ).map(([phaseKey, phaseLabel]) => (
+              <button
+                key={phaseKey}
+                type="button"
+                onClick={() => setSelectedPhaseFilter(phaseKey)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap min-h-[34px] transition-colors ${
+                  selectedPhaseFilter === phaseKey
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                {phaseLabel}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
             <button
-              key={rm}
-              onClick={() => setSelectedRoomFilter(rm)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap ${
-                selectedRoomFilter === rm
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-white border border-slate-200 text-slate-700'
+              type="button"
+              onClick={() => setSelectedRoomFilter('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                selectedRoomFilter === 'all'
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {rm} ({photos.filter((p) => p.roomName === rm).length})
+              Toutes pièces ({photos.length})
             </button>
-          ))}
+            {Array.from(new Set(photos.map((p) => p.roomName))).map((rm) => (
+              <button
+                key={rm}
+                type="button"
+                onClick={() => setSelectedRoomFilter(rm)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  selectedRoomFilter === rm
+                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {rm} ({photos.filter((p) => p.roomName === rm).length})
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Photo Grid */}

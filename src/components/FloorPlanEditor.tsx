@@ -22,7 +22,6 @@ import {
   RotateCw,
   Layers,
   Plus,
-  Ruler,
   BookOpen,
   Shapes,
   Sparkles,
@@ -183,9 +182,12 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
   const [lockFurniture, setLockFurniture] = useState(false);
   const [showGhostBelow, setShowGhostBelow] = useState(false);
 
-  // Furniture drawer
+  // Furniture drawer & top popovers
   const [showFurnitureDrawer, setShowFurnitureDrawer] = useState(false);
-  const [showCompassPanel, setShowCompassPanel] = useState(false);
+  const [showDisplayPopover, setShowDisplayPopover] = useState(false);
+  const [showAutoPopover, setShowAutoPopover] = useState(false);
+  const displayPopoverRef = useRef<HTMLDivElement>(null);
+  const autoPopoverRef = useRef<HTMLDivElement>(null);
   const [furnitureCategory, setFurnitureCategory] = useState<string>('Salon');
 
   // New floor modal
@@ -216,6 +218,23 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
   useEscapeKey(showManageFloorModal, () => setShowManageFloorModal(false));
   useEscapeKey(showNewFloorModal, () => setShowNewFloorModal(false));
+  useEscapeKey(showDisplayPopover, () => setShowDisplayPopover(false));
+  useEscapeKey(showAutoPopover, () => setShowAutoPopover(false));
+
+  useEffect(() => {
+    if (!showDisplayPopover && !showAutoPopover) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (showDisplayPopover && displayPopoverRef.current && !displayPopoverRef.current.contains(target)) {
+        setShowDisplayPopover(false);
+      }
+      if (showAutoPopover && autoPopoverRef.current && !autoPopoverRef.current.contains(target)) {
+        setShowAutoPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDisplayPopover, showAutoPopover]);
 
   // Pinch zoom & two-finger pan state
   const lastTouchDist = useRef<number | null>(null);
@@ -1468,21 +1487,22 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
-      {/* Top Bar: Floors + Metrics + Layer Controls */}
-      <div className="bg-white border-b border-slate-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2 z-10">
-        {/* Floor tabs */}
-        <div className="flex items-center gap-1.5 max-w-full min-w-0">
-          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 min-w-0">
+      {/* Top Sub-Bar: Floors (left) + Metrics (center) + Clean Actions (right) */}
+      <div className="bg-white border-b border-slate-200/90 px-3 py-1.5 flex items-center justify-between gap-2 z-20 shrink-0">
+        {/* Left: Floor tabs + Add + Manage */}
+        <div className="flex items-center gap-1 min-w-0">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5 min-w-0">
             {[...allFloors]
               .sort((a, b) => a.order - b.order)
               .map((f) => (
                 <button
                   key={f.id}
+                  type="button"
                   onClick={() => onSelectFloor(f.id)}
-                  className={`px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors min-h-[40px] shrink-0 inline-flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors min-h-[36px] shrink-0 inline-flex items-center gap-1.5 ${
                     f.id === floor.id
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                   }`}
                 >
                   {f.isExterior && <Trees className="w-3.5 h-3.5 shrink-0" />}
@@ -1491,19 +1511,22 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
               ))}
           </div>
           <button
+            type="button"
             onClick={() => setShowNewFloorModal(true)}
-            className="px-3 py-2 rounded-xl text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-1 min-h-[40px] shrink-0 whitespace-nowrap"
+            className="p-2 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center justify-center min-h-[36px] min-w-[36px] shrink-0 transition-colors"
             title="Ajouter un étage ou extérieur"
+            aria-label="Ajouter un étage"
           >
-            <Plus className="w-4 h-4" /> Étage
+            <Plus className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => {
               setManageFloorName(floor.name);
               setConfirmDeleteFloor(false);
               setShowManageFloorModal(true);
             }}
-            className="p-2 rounded-xl text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center min-h-[40px] min-w-[40px] shrink-0"
+            className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-800 flex items-center justify-center min-h-[36px] min-w-[36px] shrink-0 transition-colors"
             title={`Gérer l'étage « ${floor.name} » (renommer, réordonner, supprimer)`}
             aria-label="Gérer l'étage actif"
           >
@@ -1511,134 +1534,308 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
           </button>
         </div>
 
-        {/* Live Floor Metrics */}
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs sm:text-sm text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 max-w-full">
-          <span title="Surface au sol totale des pièces">
-            Sol : <strong className="text-slate-900">{formatAreaM2(metrics.totalFloorAreaM2)}</strong>
+        {/* Center: Compact Live Metrics (desktop) */}
+        <button
+          type="button"
+          onClick={() => {
+            setShowDisplayPopover((v) => !v);
+            setShowAutoPopover(false);
+          }}
+          title="Cliquer pour ajuster la hauteur des murs, les cotes et les calques"
+          className="hidden xl:flex items-center gap-2.5 text-xs text-slate-600 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200/80 transition-colors shrink-0"
+        >
+          <span>
+            Sol <strong className="text-slate-900">{formatAreaM2(metrics.totalFloorAreaM2)}</strong>
           </span>
-          <span className="text-slate-300">|</span>
-          <span title="Hauteur par défaut des murs de cet étage" className="flex items-center gap-1">
-            Hauteur :
-            <NumericInput
-              min={1}
-              max={600}
-              step={0.5}
-              value={floor.defaultWallHeightCm}
-              onCommit={(val) => commitFloor({ ...floor, defaultWallHeightCm: val })}
-              className="w-16 px-1.5 py-0.5 bg-white border border-slate-300 rounded text-center font-semibold text-slate-900"
-            />
-            cm
+          <span className="text-slate-300">·</span>
+          <span>
+            Murs <strong className="text-slate-900">{formatAreaM2(metrics.totalWallSurfaceM2)}</strong>
           </span>
-          <span className="text-slate-300">|</span>
-          <span title="Surface totale des murs (linéaire × hauteur)">
-            Murs : <strong className="text-slate-900">{formatAreaM2(metrics.totalWallSurfaceM2)}</strong>
+          <span className="text-slate-300">·</span>
+          <span>
+            H. <strong className="text-slate-900">{floor.defaultWallHeightCm} cm</strong>
           </span>
-        </div>
+        </button>
 
-        {/* Layers & Readability Controls */}
-        <div className="flex items-center flex-wrap gap-1.5">
-          {/* Toggle Inter-Wall Dimensions & Units */}
-          <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1 border border-slate-200">
+        {/* Right: Undo/Redo + Calques & Vue + Auto + Plan IA + Guide */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Undo / Redo always accessible */}
+          <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200/80">
             <button
-              onClick={() => setShowInterWallDims((v) => !v)}
-              className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
-                showInterWallDims ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+              type="button"
+              disabled={history.length === 0}
+              onClick={handleUndo}
+              title="Annuler (Ctrl + Z)"
+              aria-label="Annuler"
+              className="p-1.5 rounded-lg text-slate-700 hover:bg-white disabled:opacity-30 transition-colors min-h-[32px] min-w-[32px] flex items-center justify-center"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              disabled={redoHistory.length === 0}
+              onClick={handleRedo}
+              title="Rétablir (Ctrl + Y)"
+              aria-label="Rétablir"
+              className="p-1.5 rounded-lg text-slate-700 hover:bg-white disabled:opacity-30 transition-colors min-h-[32px] min-w-[32px] flex items-center justify-center"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Unified Display, Layers, Height & Compass Popover */}
+          <div className="relative" ref={displayPopoverRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowDisplayPopover((v) => !v);
+                setShowAutoPopover(false);
+              }}
+              aria-expanded={showDisplayPopover}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[36px] transition-colors ${
+                showDisplayPopover
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
               }`}
-              title="Afficher / masquer les cotes entre les murs (cliquables pour modifier avec un input number)"
+              title="Calques, cotes, unités, hauteur murs et orientation Sud"
             >
-              <ArrowLeftRight className="w-3.5 h-3.5" />
-              Cotes murs
+              <Layers className="w-4 h-4" />
+              <span className="hidden sm:inline">Affichage</span>
+              {(lockStructure || lockFurniture || !showStructure || !showFurniture) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              )}
             </button>
-            <button
-              onClick={() => setUnitMode((u) => (u === 'cm' ? 'auto' : 'cm'))}
-              className="px-2 py-1 rounded-lg text-xs font-semibold bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
-              title="Basculer l'affichage des cotes entre centimètres (ex: 110,5 cm) et mètres (ex: 1,10 m)"
-            >
-              {unitMode === 'cm' ? 'Unité: cm' : 'Unité: m'}
-            </button>
+
+            {showDisplayPopover && (
+              <div className="absolute top-full right-0 mt-1.5 w-72 bg-white border border-slate-200 rounded-2xl shadow-xl p-3.5 space-y-3.5 z-50 text-xs">
+                {/* Floor summary & default wall height */}
+                <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200/80 space-y-2">
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>Surface sol : <strong className="text-slate-900">{formatAreaM2(metrics.totalFloorAreaM2)}</strong></span>
+                    <span>Murs : <strong className="text-slate-900">{formatAreaM2(metrics.totalWallSurfaceM2)}</strong></span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70">
+                    <span className="font-semibold text-slate-700">Hauteur murs défaut</span>
+                    <div className="flex items-center gap-1">
+                      <NumericInput
+                        min={1}
+                        max={600}
+                        step={0.5}
+                        value={floor.defaultWallHeightCm}
+                        onCommit={(val) => commitFloor({ ...floor, defaultWallHeightCm: val })}
+                        className="w-16 px-2 py-1 bg-white border border-slate-300 rounded-lg text-center font-semibold text-slate-900"
+                      />
+                      <span className="text-slate-500">cm</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Layers */}
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Calques
+                  </div>
+                  <div className="flex items-center justify-between bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-200/70">
+                    <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-slate-500" />
+                      Murs & Pièces
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowStructure((s) => !s)}
+                        className={`p-1.5 rounded-lg ${showStructure ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-400'}`}
+                        title={showStructure ? 'Masquer murs' : 'Afficher murs'}
+                      >
+                        {showStructure ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLockStructure((l) => !l)}
+                        className={`p-1.5 rounded-lg ${lockStructure ? 'bg-amber-100 text-amber-800' : 'bg-white text-slate-600'}`}
+                        title={lockStructure ? 'Déverrouiller murs' : 'Verrouiller murs'}
+                      >
+                        {lockStructure ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-200/70">
+                    <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Armchair className="w-3.5 h-3.5 text-slate-500" />
+                      Meubles
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowFurniture((s) => !s)}
+                        className={`p-1.5 rounded-lg ${showFurniture ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-400'}`}
+                        title={showFurniture ? 'Masquer meubles' : 'Afficher meubles'}
+                      >
+                        {showFurniture ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLockFurniture((l) => !l)}
+                        className={`p-1.5 rounded-lg ${lockFurniture ? 'bg-amber-100 text-amber-800' : 'bg-white text-slate-600'}`}
+                        title={lockFurniture ? 'Déverrouiller meubles' : 'Verrouiller meubles'}
+                      >
+                        {lockFurniture ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {floorBelow && (
+                    <button
+                      type="button"
+                      onClick={() => setShowGhostBelow((g) => !g)}
+                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl border font-semibold transition-colors ${
+                        showGhostBelow
+                          ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Étage inférieur en transparence</span>
+                      <span>{showGhostBelow ? 'Actif' : 'Off'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Dimensions & Units */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Mesures
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowInterWallDims((v) => !v)}
+                      className={`px-2.5 py-2 rounded-xl font-semibold flex items-center justify-center gap-1.5 border transition-colors ${
+                        showInterWallDims
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <ArrowLeftRight className="w-3.5 h-3.5" />
+                      Cotes murs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUnitMode((u) => (u === 'cm' ? 'auto' : 'cm'))}
+                      className="px-2.5 py-2 rounded-xl font-semibold bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
+                    >
+                      Unité : {unitMode === 'cm' ? 'cm' : 'm'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Orientation Sud (Soleil 3D) */}
+                <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                      <Compass className="w-3.5 h-3.5 text-amber-500" />
+                      Orientation Sud (Soleil 3D)
+                    </span>
+                    <span className="font-bold text-amber-700">{floor.southAngleDeg ?? 0}°</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={355}
+                    step={5}
+                    value={floor.southAngleDeg ?? 0}
+                    onChange={(e) => commitFloor({ ...floor, southAngleDeg: Number(e.target.value) })}
+                    className="w-full accent-amber-500 h-1.5"
+                  />
+                  <div className="grid grid-cols-4 gap-1 text-[10px] font-semibold">
+                    {[
+                      ['Bas', 0],
+                      ['Gauche', 90],
+                      ['Haut', 180],
+                      ['Droite', 270],
+                    ].map(([lbl, deg]) => (
+                      <button
+                        key={String(lbl)}
+                        type="button"
+                        onClick={() => commitFloor({ ...floor, southAngleDeg: Number(deg) })}
+                        className={`py-1 rounded-lg border transition-colors ${
+                          (floor.southAngleDeg ?? 0) === deg
+                            ? 'bg-amber-500 text-white border-amber-500'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={handleCleanWalls}
-            disabled={lockStructure || floor.walls.length === 0}
-            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-40 flex items-center gap-1 min-h-[36px]"
-            title="Aligner proprement les jonctions et couper les murs qui dépassent"
-          >
-            <Wand2 className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Aligner jonctions</span>
-          </button>
-
-          <button
-            onClick={handleDetectRooms}
-            disabled={lockStructure || floor.walls.length < 3}
-            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 disabled:opacity-40 flex items-center gap-1 min-h-[36px]"
-            title="Détecter automatiquement les pièces fermées depuis les murs"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">Détecter pièces</span>
-          </button>
-
-          {/* Layer 1: Structure */}
-          <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1 border border-slate-200">
-            <span className="text-xs font-semibold text-slate-700 px-1.5 flex items-center gap-1">
-              <Layers className="w-3.5 h-3.5 text-slate-500" />
-              Murs
-            </span>
+          {/* Smart Auto Tools Popover */}
+          <div className="relative" ref={autoPopoverRef}>
             <button
-              onClick={() => setShowStructure((s) => !s)}
-              className={`p-1.5 rounded-lg ${showStructure ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-400'}`}
-              title={showStructure ? 'Masquer calque murs' : 'Afficher calque murs'}
-            >
-              {showStructure ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={() => setLockStructure((l) => !l)}
-              className={`p-1.5 rounded-lg ${lockStructure ? 'bg-amber-100 text-amber-800' : 'bg-white text-slate-700'}`}
-              title={lockStructure ? 'Déverrouiller murs' : 'Verrouiller murs'}
-            >
-              {lockStructure ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-            </button>
-          </div>
-
-          {/* Layer 2: Furniture */}
-          <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1 border border-slate-200">
-            <span className="text-xs font-semibold text-slate-700 px-1.5 flex items-center gap-1">
-              <Armchair className="w-3.5 h-3.5 text-slate-500" />
-              Meubles
-            </span>
-            <button
-              onClick={() => setShowFurniture((s) => !s)}
-              className={`p-1.5 rounded-lg ${showFurniture ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-400'}`}
-              title={showFurniture ? 'Masquer meubles' : 'Afficher meubles'}
-            >
-              {showFurniture ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={() => setLockFurniture((l) => !l)}
-              className={`p-1.5 rounded-lg ${lockFurniture ? 'bg-amber-100 text-amber-800' : 'bg-white text-slate-700'}`}
-              title={lockFurniture ? 'Déverrouiller meubles' : 'Verrouiller meubles'}
-            >
-              {lockFurniture ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-            </button>
-          </div>
-
-          {floorBelow && (
-            <button
-              onClick={() => setShowGhostBelow((g) => !g)}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border min-h-[36px] ${
-                showGhostBelow
-                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
-                  : 'bg-white border-slate-200 text-slate-600'
+              type="button"
+              onClick={() => {
+                setShowAutoPopover((v) => !v);
+                setShowDisplayPopover(false);
+              }}
+              aria-expanded={showAutoPopover}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 min-h-[36px] transition-colors ${
+                showAutoPopover
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
               }`}
-              title="Afficher l'étage inférieur en transparence"
+              title="Actions automatiques sur le plan (aligner murs, détecter pièces)"
             >
-              Calque dessous
+              <Wand2 className="w-4 h-4 text-emerald-600" />
+              <span className="hidden md:inline">Auto</span>
             </button>
-          )}
+
+            {showAutoPopover && (
+              <div className="absolute top-full right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl p-1.5 space-y-0.5 z-50 text-xs">
+                <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Corrections & Automatisation
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCleanWalls();
+                    setShowAutoPopover(false);
+                  }}
+                  disabled={lockStructure || floor.walls.length === 0}
+                  className="w-full px-2.5 py-2 rounded-xl text-left hover:bg-emerald-50 disabled:opacity-40 flex items-start gap-2.5 transition-colors"
+                >
+                  <Wand2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-semibold text-slate-900">Aligner les jonctions</div>
+                    <div className="text-[11px] text-slate-500">Coupe et soude proprement les coins</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDetectRooms();
+                    setShowAutoPopover(false);
+                  }}
+                  disabled={lockStructure || floor.walls.length < 3}
+                  className="w-full px-2.5 py-2 rounded-xl text-left hover:bg-blue-50 disabled:opacity-40 flex items-start gap-2.5 transition-colors"
+                >
+                  <Shapes className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-semibold text-slate-900">Détecter les pièces</div>
+                    <div className="text-[11px] text-slate-500">Crée les zones fermées depuis les murs</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
+            type="button"
             onClick={() => setShowAIPlanModal(true)}
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white shadow-xs flex items-center gap-1.5 min-h-[36px] transition-colors"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white shadow-xs flex items-center gap-1.5 min-h-[36px] transition-colors"
             title="Générer un plan 2D/3D par IA (depuis photo de croquis ou description)"
           >
             <Sparkles className="w-4 h-4" />
@@ -1646,12 +1843,13 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={() => setShowTutorialModal(true)}
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 min-h-[36px] transition-colors"
-            title="Guide & Tutoriel : Créer un étage de A à Z (Murs vs Pièces)"
+            className="p-2 rounded-xl text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 border border-slate-200 bg-white flex items-center justify-center min-h-[36px] min-w-[36px] transition-colors"
+            title="Guide & Tutoriel : Créer un étage de A à Z"
+            aria-label="Guide et tutoriel"
           >
             <BookOpen className="w-4 h-4" />
-            <span className="hidden sm:inline">Guide</span>
           </button>
         </div>
       </div>
@@ -2651,15 +2849,40 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
           </div>
         )}
 
-        {/* Contextual Banner for Exterior / Interior Wall Creation */}
+        {/* Contextual Bar for Walls (Mur Ext. / Mur Int. + Mode + Thickness) */}
         {(tool === 'wall-ext' || tool === 'wall-int') && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl px-3.5 py-2 flex flex-wrap items-center gap-3 z-20 max-w-[95vw]">
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md border border-slate-200 shadow-lg rounded-2xl px-3 py-2 flex flex-wrap items-center justify-center gap-2.5 z-20 max-w-[95vw]">
+            <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setTool('wall-ext');
+                  setWallStart(null);
+                  setWallPreview(null);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  tool === 'wall-ext' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Mur Extérieur
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTool('wall-int');
+                  setWallStart(null);
+                  setWallPreview(null);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  tool === 'wall-int' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Cloison Int.
+              </button>
+            </div>
+
             {tool === 'wall-ext' ? (
               <>
-                <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <Ruler className="w-4 h-4 text-blue-600" />
-                  1. Murs Extérieurs :
-                </span>
                 <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200">
                   <button
                     type="button"
@@ -2668,11 +2891,11 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                       setWallStart(null);
                       setWallPreview(null);
                     }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                      extWallMode === 'segment' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                    className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                      extWallMode === 'segment' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Mur par mur
+                    Segment
                   </button>
                   <button
                     type="button"
@@ -2681,41 +2904,37 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                       setWallStart(null);
                       setWallPreview(null);
                     }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                      extWallMode === 'rect' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                    className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                      extWallMode === 'rect' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Contour 4 murs (Rect.)
+                    Contour 4 murs
                   </button>
                 </div>
                 <label className="flex items-center gap-1 text-xs text-slate-700">
-                  <span>Ép. :</span>
+                  <span>Ép.</span>
                   <NumericInput
                     step={0.5}
                     min={1}
                     max={100}
                     value={extWallThicknessCm}
                     onCommit={setExtWallThicknessCm}
-                    className="w-14 px-1.5 py-0.5 border border-slate-300 rounded font-semibold text-center text-slate-900"
+                    className="w-14 px-1.5 py-0.5 border border-slate-300 rounded-lg font-semibold text-center text-slate-900"
                   />
                   <span>cm</span>
                 </label>
               </>
             ) : (
               <>
-                <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                  <Ruler className="w-4 h-4 text-indigo-600" />
-                  2. Murs Intérieurs (sans restriction) :
-                </span>
                 <label className="flex items-center gap-1 text-xs text-slate-700">
-                  <span>Ép. cloison :</span>
+                  <span>Ép.</span>
                   <NumericInput
                     step={0.1}
                     min={1}
                     max={100}
                     value={intWallThicknessCm}
                     onCommit={setIntWallThicknessCm}
-                    className="w-16 px-1.5 py-0.5 border border-slate-300 rounded font-semibold text-center text-slate-900"
+                    className="w-14 px-1.5 py-0.5 border border-slate-300 rounded-lg font-semibold text-center text-slate-900"
                   />
                   <span>cm</span>
                 </label>
@@ -2728,37 +2947,142 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
                       : 'bg-indigo-50 border-indigo-200 text-indigo-700'
                   }`}
                 >
-                  {freeAngleWall ? 'Angle 100% libre' : 'Aide 90° (ou Shift)'}
+                  {freeAngleWall ? 'Angle libre' : 'Aide 90°'}
                 </button>
               </>
             )}
-            <span className="text-[11px] text-slate-500 hidden sm:inline">
-              {wallStart ? 'Cliquez le point de fin' : 'Cliquez le point de départ (sur un mur ou libre)'}
-            </span>
+
+            <button
+              type="button"
+              onClick={() => setTool('select')}
+              aria-label="Quitter l'outil"
+              title="Revenir à la sélection (Échap)"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
-        {/* Helper Hint Banner for Room / Opening tools */}
-        {(tool === 'room' ||
-          tool === 'room-poly' ||
-          tool === 'door' ||
-          tool === 'window' ||
-          tool === 'arch-passage') && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs sm:text-sm px-4 py-2 rounded-2xl sm:rounded-full shadow-md pointer-events-none flex items-center justify-center gap-2 z-20 max-w-[92vw] w-max text-center">
-            <Ruler className="w-4 h-4 text-blue-400 shrink-0" />
-            {tool === 'room' && (roomStart ? 'Touchez le coin opposé de la pièce' : 'Touchez le premier coin de la pièce')}
-            {tool === 'room-poly' &&
-              (polyPoints.length === 0
-                ? 'Touchez le 1er coin de la pièce (couloir, en L...)'
-                : 'Touchez le coin suivant, ou le 1er point vert pour fermer')}
-            {(tool === 'door' || tool === 'window' || tool === 'arch-passage') &&
-              "Touchez un mur existant pour y placer l'ouverture / arche"}
+        {/* Contextual Bar for Rooms (Rectangle / Polygone / Détecter auto) */}
+        {(tool === 'room' || tool === 'room-poly') && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md border border-slate-200 shadow-lg rounded-2xl px-3 py-2 flex flex-wrap items-center justify-center gap-2 z-20 max-w-[95vw]">
+            <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setTool('room');
+                  setPolyPoints([]);
+                  setPolyPreview(null);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  tool === 'room' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Square className="w-3.5 h-3.5" />
+                Rectangle
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTool('room-poly');
+                  setRoomStart(null);
+                  setRoomPreview(null);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  tool === 'room-poly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Shapes className="w-3.5 h-3.5" />
+                Polygone
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleDetectRooms}
+              disabled={lockStructure || floor.walls.length < 3}
+              className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 disabled:opacity-40 flex items-center gap-1"
+              title="Détecter automatiquement les pièces depuis les murs"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Détecter auto
+            </button>
+            <span className="text-[11px] text-slate-500 hidden md:inline">
+              {tool === 'room'
+                ? roomStart
+                  ? 'Cliquez le coin opposé'
+                  : 'Cliquez le 1er coin'
+                : polyPoints.length === 0
+                  ? 'Cliquez les coins de la pièce'
+                  : 'Cliquez le 1er point vert pour fermer'}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setPolyPoints([]);
+                setPolyPreview(null);
+                setTool('select');
+              }}
+              aria-label="Quitter l'outil"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Contextual Bar for Openings (Porte / Fenêtre / Arche) */}
+        {(tool === 'door' || tool === 'window' || tool === 'arch-passage') && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md border border-slate-200 shadow-lg rounded-2xl px-3 py-2 flex flex-wrap items-center justify-center gap-2 z-20 max-w-[95vw]">
+            <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setTool('door')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  tool === 'door' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <DoorOpen className="w-3.5 h-3.5" />
+                Porte
+              </button>
+              <button
+                type="button"
+                onClick={() => setTool('window')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  tool === 'window' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <AppWindow className="w-3.5 h-3.5" />
+                Fenêtre
+              </button>
+              <button
+                type="button"
+                onClick={() => setTool('arch-passage')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  tool === 'arch-passage' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Shapes className="w-3.5 h-3.5" />
+                Arche / Passage
+              </button>
+            </div>
+            <span className="text-[11px] text-slate-500 hidden sm:inline">
+              Cliquez sur un mur pour placer
+            </span>
+            <button
+              type="button"
+              onClick={() => setTool('select')}
+              aria-label="Quitter l'outil"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
         {/* Floating Polygon Control Banner */}
         {tool === 'room-poly' && polyPoints.length > 0 && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-2xl px-3 sm:px-4 py-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 z-30 max-w-[95vw] w-max">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-2xl px-3 sm:px-4 py-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 z-30 max-w-[95vw] w-max">
             <span className="text-xs text-slate-800 font-medium">
               Pièce polygone : <strong>{polyPoints.length} point{polyPoints.length > 1 ? 's' : ''}</strong>
             </span>
@@ -2786,253 +3110,125 @@ export const FloorPlanEditor: React.FC<FloorPlanEditorProps> = ({
 
         {/* Locked Toast Notification */}
         {showLockedToast && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs sm:text-sm px-4 py-2.5 rounded-2xl shadow-xl z-50 flex items-center gap-2 border border-slate-700 animate-in fade-in max-w-[92vw] w-max">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs sm:text-sm px-4 py-2.5 rounded-2xl shadow-xl z-50 flex items-center gap-2 border border-slate-700 animate-in fade-in max-w-[92vw] w-max">
             <Lock className="w-4 h-4 text-amber-400 shrink-0" />
             <span>{showLockedToast}</span>
           </div>
         )}
 
-        {/* Bottom Floating Toolbar (Touch Friendly, with Mur Ext. & Mur Int.) */}
-        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl p-1.5 flex items-center gap-1 max-w-[96vw] overflow-x-auto scrollbar-none z-20">
+        {/* Bottom Floating Tool Dock — 6 Clean Grouped Tools (zero overflow!) */}
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-lg rounded-2xl p-1.5 flex items-center gap-1 max-w-[96vw] z-20">
           <ToolButton
             active={tool === 'select'}
             onClick={() => setTool('select')}
-            icon={<MousePointer2 className="w-5 h-5" />}
+            icon={<MousePointer2 className="w-4 h-4 sm:w-5 sm:h-5" />}
             label="Sélect."
           />
           <ToolButton
             active={tool === 'pan'}
             onClick={() => setTool('pan')}
-            icon={<Hand className="w-5 h-5" />}
-            label="Déplacer"
+            icon={<Hand className="w-4 h-4 sm:w-5 sm:h-5" />}
+            label="Main"
+            title="Déplacer la vue"
           />
-          <div className="w-px h-8 bg-slate-200 mx-0.5" />
+          <div className="w-px h-7 bg-slate-200 mx-0.5 shrink-0" />
           <ToolButton
-            active={tool === 'wall-ext'}
+            active={tool === 'wall-ext' || tool === 'wall-int'}
             onClick={() => {
-              setTool('wall-ext');
+              if (tool !== 'wall-ext' && tool !== 'wall-int') {
+                setTool('wall-ext');
+              }
               setLockStructure(false);
               setShowStructure(true);
               setWallStart(null);
               setWallPreview(null);
             }}
-            icon={<PenLine className="w-5 h-5" />}
-            label="Mur Ext."
-            title="Étape 1 : Tracer les murs extérieurs (segment ou contour 4 murs)"
+            icon={<PenLine className="w-4 h-4 sm:w-5 sm:h-5" />}
+            label="Murs"
+            title="Tracer des murs extérieurs ou cloisons intérieures"
           />
           <ToolButton
-            active={tool === 'wall-int'}
+            active={tool === 'room' || tool === 'room-poly'}
             onClick={() => {
-              setTool('wall-int');
-              setLockStructure(false);
-              setShowStructure(true);
-              setWallStart(null);
-              setWallPreview(null);
-            }}
-            icon={<Ruler className="w-5 h-5" />}
-            label="Mur Int."
-            title="Étape 2 : Tracer les murs intérieurs / cloisons sans restriction"
-          />
-          <ToolButton
-            active={tool === 'room'}
-            onClick={() => {
-              setTool('room');
+              if (tool !== 'room' && tool !== 'room-poly') {
+                setTool('room');
+              }
               setLockStructure(false);
               setShowStructure(true);
             }}
-            icon={<Square className="w-5 h-5" />}
-            label="Pièce (Rect.)"
+            icon={<Square className="w-4 h-4 sm:w-5 sm:h-5" />}
+            label="Pièces"
+            title="Délimiter une pièce (rectangle, polygone ou détection auto)"
           />
           <ToolButton
-            active={tool === 'room-poly'}
+            active={tool === 'door' || tool === 'window' || tool === 'arch-passage'}
             onClick={() => {
-              setTool('room-poly');
-              setLockStructure(false);
-              setShowStructure(true);
-              setPolyPoints([]);
-            }}
-            icon={<Shapes className="w-5 h-5" />}
-            label="Pièce (Poly.)"
-          />
-          <ToolButton
-            active={tool === 'door'}
-            onClick={() => {
-              setTool('door');
+              if (tool !== 'door' && tool !== 'window' && tool !== 'arch-passage') {
+                setTool('door');
+              }
               setLockStructure(false);
               setShowStructure(true);
             }}
-            icon={<DoorOpen className="w-5 h-5" />}
-            label="Porte"
+            icon={<DoorOpen className="w-4 h-4 sm:w-5 sm:h-5" />}
+            label="Ouvert."
+            title="Placer une porte, fenêtre ou arche sur un mur"
           />
-          <ToolButton
-            active={tool === 'window'}
-            onClick={() => {
-              setTool('window');
-              setLockStructure(false);
-              setShowStructure(true);
-            }}
-            icon={<AppWindow className="w-5 h-5" />}
-            label="Fenêtre"
-          />
-          <ToolButton
-            active={tool === 'arch-passage'}
-            onClick={() => {
-              setTool('arch-passage');
-              setLockStructure(false);
-              setShowStructure(true);
-            }}
-            icon={<Shapes className="w-5 h-5" />}
-            label="Arche / Ouv."
-          />
-          <div className="w-px h-8 bg-slate-200 mx-0.5" />
+          <div className="w-px h-7 bg-slate-200 mx-0.5 shrink-0" />
           <ToolButton
             active={showFurnitureDrawer}
             onClick={() => setShowFurnitureDrawer((s) => !s)}
-            icon={<Armchair className="w-5 h-5" />}
+            icon={<Armchair className="w-4 h-4 sm:w-5 sm:h-5" />}
             label="Meubles"
-          />
-          <div className="w-px h-8 bg-slate-200 mx-0.5" />
-          <ToolButton
-            active={false}
-            disabled={history.length === 0}
-            onClick={handleUndo}
-            icon={<Undo2 className="w-5 h-5" />}
-            label="Annuler"
-            title="Annuler (Ctrl + Z)"
-          />
-          <ToolButton
-            active={false}
-            disabled={redoHistory.length === 0}
-            onClick={handleRedo}
-            icon={<Redo2 className="w-5 h-5" />}
-            label="Rétablir"
-            title="Rétablir (Ctrl + Y)"
+            title="Bibliothèque de meubles & import web"
           />
         </div>
 
-        {/* Zoom & Scale Bar (Bottom Right, shifted when inspector is open to prevent overlap) */}
-        <div
-          className={`absolute bottom-20 flex flex-col gap-2 transition-all z-10 ${
-            selection ? 'left-4 items-start md:left-auto md:right-[21.5rem] md:items-end' : 'right-4 items-end'
-          }`}
-        >
-          {/* Orientation Sud (Boussole 2D -> Soleil 3D) */}
-          <div className="relative">
+        {/* Zoom & Scale Controls (Bottom Left — never collides with Right Inspector!) */}
+        <div className="absolute bottom-20 sm:bottom-3 left-3 flex items-center gap-2 z-10">
+          <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-sm p-1 flex items-center gap-0.5">
             <button
               type="button"
-              onClick={() => setShowCompassPanel((v) => !v)}
-              title={`Orientation Sud : ${floor.southAngleDeg ?? 0}° (cliquer pour orienter le soleil 3D)`}
-              className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl shadow-md px-2.5 py-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:border-amber-300"
-            >
-              <span
-                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700 font-bold text-[10px] transition-transform"
-                style={{ transform: `rotate(${floor.southAngleDeg ?? 0}deg)` }}
-              >
-                <Compass className="w-4 h-4" />
-              </span>
-              <span>Sud {floor.southAngleDeg ?? 0}°</span>
-            </button>
-
-            {showCompassPanel && (
-              <div
-                className={`absolute bottom-full mb-2 w-56 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-xl p-3 space-y-2.5 z-30 ${
-                  selection ? 'left-0 md:left-auto md:right-0' : 'right-0'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Compass className="w-4 h-4 text-amber-500" />
-                    Orientation du Sud
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowCompassPanel(false)}
-                    aria-label="Fermer"
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="flex justify-center py-1">
-                  <div className="relative w-16 h-16 rounded-full border-2 border-slate-200 bg-slate-50 flex items-center justify-center">
-                    <div
-                      className="w-full h-full flex flex-col items-center justify-between py-1 transition-transform"
-                      style={{ transform: `rotate(${floor.southAngleDeg ?? 0}deg)` }}
-                    >
-                      <span className="text-[10px] font-bold text-slate-400">N</span>
-                      <span className="text-xs font-extrabold text-amber-600">S ↓</span>
-                    </div>
-                  </div>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={355}
-                  step={5}
-                  value={floor.southAngleDeg ?? 0}
-                  onChange={(e) => commitFloor({ ...floor, southAngleDeg: Number(e.target.value) })}
-                  className="w-full accent-amber-500 h-1.5"
-                />
-                <div className="grid grid-cols-4 gap-1 text-[10px] font-semibold">
-                  {[
-                    ['Bas', 0],
-                    ['Gauche', 90],
-                    ['Haut', 180],
-                    ['Droite', 270],
-                  ].map(([lbl, deg]) => (
-                    <button
-                      key={String(lbl)}
-                      type="button"
-                      onClick={() => commitFloor({ ...floor, southAngleDeg: Number(deg) })}
-                      className={`py-1 rounded-lg border ${
-                        (floor.southAngleDeg ?? 0) === deg
-                          ? 'bg-amber-500 text-white border-amber-500'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl shadow-md p-1 flex flex-col gap-1">
-            <button
-              onClick={() => setZoom((z) => Math.min(3.0, z * 1.2))}
-              className="p-2.5 hover:bg-slate-100 rounded-lg text-slate-700"
-              title="Zoom +"
-            >
-              <ZoomIn className="w-5 h-5" />
-            </button>
-            <button
               onClick={() => setZoom((z) => Math.max(0.25, z / 1.2))}
-              className="p-2.5 hover:bg-slate-100 rounded-lg text-slate-700"
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
               title="Zoom -"
+              aria-label="Dézoomer"
             >
-              <ZoomOut className="w-5 h-5" />
+              <ZoomOut className="w-4 h-4" />
             </button>
+            <span className="text-[11px] font-semibold text-slate-600 min-w-[38px] text-center tabular-nums">
+              {Math.round(zoom * 100)}%
+            </span>
             <button
+              type="button"
+              onClick={() => setZoom((z) => Math.min(3.0, z * 1.2))}
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+              title="Zoom +"
+              aria-label="Zoomer"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-slate-200 mx-0.5" />
+            <button
+              type="button"
               onClick={() => {
                 setZoom(0.85);
                 setPan({ x: 140, y: 60 });
               }}
-              className="p-2.5 hover:bg-slate-100 rounded-lg text-slate-700"
-              title="Recentrer"
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+              title="Recentrer le plan"
+              aria-label="Recentrer le plan"
             >
-              <Maximize2 className="w-5 h-5" />
+              <Maximize2 className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="bg-white/90 px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-xs text-[11px] font-medium text-slate-700 flex flex-col items-center">
-            <div className="flex justify-between w-full mb-0.5 px-0.5">
+          <div className="hidden lg:flex bg-white/90 px-2.5 py-1 rounded-xl border border-slate-200 shadow-xs text-[10px] font-medium text-slate-600 flex-col items-center">
+            <div className="flex justify-between w-full mb-0.5">
               <span>0</span>
-              <span>1</span>
               <span>2 m</span>
             </div>
-            <div className="flex border border-slate-800 h-2" style={{ width: `${200 * PX_PER_CM * zoom}px` }}>
-              <div className="w-1/2 bg-slate-800" />
+            <div className="flex border border-slate-700 h-1.5" style={{ width: `${Math.min(180, Math.max(40, 200 * PX_PER_CM * zoom))}px` }}>
+              <div className="w-1/2 bg-slate-700" />
               <div className="w-1/2 bg-white" />
             </div>
           </div>
