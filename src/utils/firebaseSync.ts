@@ -176,6 +176,10 @@ export function getFirebaseAuth(): Auth {
   return ensureFirebase().auth;
 }
 
+export function getFirestoreDb(): Firestore | null {
+  return tryInitFirebase()?.firestore ?? null;
+}
+
 export function subscribeAuth(callback: (user: User | null) => void): Unsubscribe {
   const inst = tryInitFirebase();
   if (!inst) {

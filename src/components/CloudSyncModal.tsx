@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
+import { collection, getDocs } from 'firebase/firestore';
 import {
   Cloud,
   CloudOff,
@@ -13,13 +14,23 @@ import {
   X,
   AlertCircle,
   User as UserIcon,
+  Shield,
 } from 'lucide-react';
 import type { CloudSyncState, House, HouseSyncConfig } from '../types';
 import { useEscapeKey } from '../utils/useEscapeKey';
 import { copyTextToClipboard } from '../utils/clipboard';
 import {
+  listShareableAppUsers,
+  normalizeEmail,
+  resolveUserAccess,
+  type AccessStatus,
+  type WhitelistEntry,
+} from '../utils/accessControl';
+import { AccessControlPanel } from './AccessControlPanel';
+import {
   ensureRemoteWorkspace,
   formatFirestoreError,
+  getFirestoreDb,
   listMyRemoteWorkspaces,
   registerWithEmail,
   reloadFirebaseUser,
@@ -69,6 +80,67 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   const [newMemberUid, setNewMemberUid] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [accessStatus, setAccessStatus] = useState<AccessStatus | null>(null);
+  const [activeTab, setActiveTab] = useState<'account' | 'access'>('account');
+  const [shareableUsers, setShareableUsers] = useState<WhitelistEntry[]>([]);
+  const [uidByEmail, setUidByEmail] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isOpen || !user || !user.emailVerified) {
+      setAccessStatus(null);
+      setActiveTab('account');
+      setShareableUsers([]);
+      setUidByEmail({});
+      return;
+    }
+    const db = getFirestoreDb();
+    let cancelled = false;
+    resolveUserAccess(db, 'travaux-maison', user.email)
+      .then((status) => {
+        if (!cancelled) {
+          setAccessStatus(status);
+          if (!status.isAdmin) {
+            setActiveTab('account');
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAccessStatus(null);
+          setActiveTab('account');
+        }
+      });
+
+    listShareableAppUsers(db, 'travaux-maison')
+      .then((list) => {
+        if (!cancelled) setShareableUsers(list);
+      })
+      .catch(() => {
+        if (!cancelled) setShareableUsers([]);
+      });
+
+    if (db) {
+      getDocs(collection(db, 'users'))
+        .then((snap) => {
+          if (cancelled) return;
+          const map: Record<string, string> = {};
+          snap.forEach((d) => {
+            const data = d.data() as { email?: string; uid?: string };
+            if (data.email) {
+              map[normalizeEmail(data.email)] = data.uid || d.id;
+            }
+          });
+          setUidByEmail(map);
+        })
+        .catch(() => {
+          if (!cancelled) setUidByEmail({});
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, user, user?.email, user?.emailVerified]);
 
   useEffect(() => {
     if (!isOpen || !user) {
@@ -258,16 +330,17 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     }
   };
 
-  const handleAddMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeWorkspace || !newMemberUid.trim() || !user) return;
+  const addMemberUidToWorkspace = async (uidToAdd: string) => {
+    if (!activeWorkspace || !uidToAdd.trim() || !user) return;
+    const trimmed = uidToAdd.trim();
+    if (activeWorkspace.memberUids.includes(trimmed)) return;
     setBusy(true);
     setError(null);
     setInfo(null);
     try {
       const updated = await updateWorkspaceMembers(activeWorkspace.id, [
         ...activeWorkspace.memberUids,
-        newMemberUid.trim(),
+        trimmed,
       ]);
       setWorkspaces((prev) =>
         prev.map((w) => (w.id === activeWorkspace.id ? { ...w, memberUids: updated } : w))
@@ -284,6 +357,11 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleAddMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await addMemberUidToWorkspace(newMemberUid);
   };
 
   const handleRemoveMember = async (uidToRemove: string) => {
@@ -333,7 +411,11 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-5">
+      <div
+        className={`bg-white rounded-2xl shadow-xl w-full max-h-[90dvh] overflow-y-auto p-4 sm:p-6 space-y-5 ${
+          activeTab === 'access' ? 'max-w-2xl' : 'max-w-lg'
+        }`}
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
@@ -487,6 +569,55 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
+            {accessStatus && !accessStatus.hasAppAccess && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs font-medium text-rose-700 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  Votre compte n&apos;est pas autorisé sur cette application. Contactez un
+                  administrateur.
+                </span>
+              </div>
+            )}
+
+            {accessStatus?.isAdmin && (
+              <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('account')}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    activeTab === 'account'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Cloud className="w-3.5 h-3.5" />
+                  Compte Cloud
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('access')}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    activeTab === 'access'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  Accès &amp; Rôles
+                </button>
+              </div>
+            )}
+
+            {accessStatus?.isAdmin && activeTab === 'access' ? (
+              <AccessControlPanel
+                db={getFirestoreDb()}
+                user={user}
+                appId="travaux-maison"
+                appName="Travaux Maison"
+                theme="light"
+              />
+            ) : (
+              <>
             {/* Connected User & Sync Status */}
             <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3.5 space-y-2">
               <div className="flex items-start justify-between gap-3">
@@ -671,6 +802,64 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                     </button>
                   </form>
                 )}
+                {shareableUsers.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                    <div className="text-[11px] font-semibold text-slate-600">
+                      Membres autorisés sur l&apos;application
+                    </div>
+                    <div className="space-y-1">
+                      {shareableUsers.map((entry) => {
+                        const knownUid = uidByEmail[normalizeEmail(entry.email)];
+                        const alreadyMember = Boolean(
+                          knownUid && activeWorkspace.memberUids.includes(knownUid)
+                        );
+                        const canQuickAdd =
+                          user.uid === activeWorkspace.ownerUid &&
+                          Boolean(knownUid) &&
+                          !alreadyMember &&
+                          activeWorkspace.memberUids.length < 10;
+
+                        return (
+                          <div
+                            key={entry.email}
+                            className="flex items-center justify-between gap-2 text-xs bg-slate-50/80 px-2.5 py-1.5 rounded-lg"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-medium text-slate-800 truncate">
+                                {entry.displayName || entry.email}
+                              </div>
+                              {entry.displayName && (
+                                <div className="text-[10px] text-slate-500 truncate">
+                                  {entry.email}
+                                </div>
+                              )}
+                            </div>
+                            <div className="shrink-0">
+                              {alreadyMember ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                                  Déjà membre
+                                </span>
+                              ) : canQuickAdd && knownUid ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => addMemberUidToWorkspace(knownUid)}
+                                  className="px-2 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800 disabled:opacity-50"
+                                >
+                                  + Ajouter au foyer
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-500">
+                                  {knownUid ? 'Non membre' : 'UID inconnu'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -715,6 +904,8 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                   })}
                 </div>
               </div>
+            )}
+              </>
             )}
           </div>
         )}
